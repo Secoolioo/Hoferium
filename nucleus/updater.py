@@ -26,6 +26,7 @@ from pathlib import Path
 REPO = "Secoolioo/Hoferium"
 BRANCH = "main"
 VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/VERSION"
+API_VERSION_URL = f"https://api.github.com/repos/{REPO}/contents/VERSION?ref={BRANCH}"
 ZIP_URL = f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}"
 RELEASES_URL = f"https://github.com/{REPO}/releases"
 REPO_URL = f"https://github.com/{REPO}"
@@ -74,22 +75,45 @@ def _open(url: str):
         return urllib.request.urlopen(req, timeout=_TIMEOUT, context=ctx)
 
 
+def _version_via_api() -> str:
+    """Version ueber die GitHub-API lesen.
+
+    Noetig, weil raw.githubusercontent.com ueber ein CDN ausgeliefert wird und
+    eine frisch veroeffentlichte Fassung dort minutenlang alt bleibt - ein
+    Update wuerde sonst verspaetet erkannt.
+    """
+    with _open(API_VERSION_URL) as resp:
+        data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    content = data.get("content") or ""
+    if data.get("encoding") == "base64" and content:
+        import base64
+        return base64.b64decode(content).decode("utf-8", errors="replace").strip()
+    return ""
+
+
+def _version_via_raw() -> str:
+    with _open(VERSION_URL) as resp:
+        return resp.read(200).decode("utf-8", errors="replace").strip()
+
+
 def check(current_version: str) -> UpdateInfo:
     """Fragt die Version im Repo ab. Wirft nie - Fehler landen in .error."""
     info = UpdateInfo(current=current_version)
-    try:
-        with _open(VERSION_URL) as resp:
-            raw = resp.read(200).decode("utf-8", errors="replace").strip()
+    last_error = ""
+    for source in (_version_via_api, _version_via_raw):
+        try:
+            raw = source()
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {e}"
+            continue
         latest = raw.splitlines()[0].strip() if raw else ""
-        if not latest:
-            info.error = "Repo enthaelt keine lesbare VERSION-Datei"
+        if latest:
+            info.latest = latest
+            info.available = parse_version(latest) > parse_version(current_version)
             return info
-        info.latest = latest
-        info.available = parse_version(latest) > parse_version(current_version)
-        return info
-    except Exception as e:
-        info.error = f"{type(e).__name__}: {e}"
-        return info
+        last_error = "Repo enthaelt keine lesbare VERSION-Datei"
+    info.error = last_error or "Version nicht ermittelbar"
+    return info
 
 
 def apply(install_dir, reporter=None) -> bool:
