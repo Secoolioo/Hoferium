@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_TITLE = "Hoferium"
-APP_SUBTITLE = "RIP · BACKUP · DEBLOAT · REBUILD"
+APP_SUBTITLE = "SICHERN · AUFRAEUMEN · ZURUECK"
 
 TAGLINES = [
     "Daten sichern, bevor der PC platt gemacht wird.",

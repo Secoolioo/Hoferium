@@ -608,9 +608,9 @@ class HoferiumApp(ctk.CTk):
         bar.grid_columnconfigure(0, weight=1)
         bar.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(bar, text=config.APP_SUBTITLE, font=(MONO_FONT, 11),
+        ctk.CTkLabel(bar, text=config.APP_SUBTITLE, font=(MONO_FONT, 10),
                      text_color=COLORS["dim"]).grid(row=0, column=0, sticky="w",
-                                                    padx=20, pady=(16, 8))
+                                                    padx=16, pady=(16, 8))
         navbox = ctk.CTkScrollableFrame(
             bar, fg_color="transparent", corner_radius=0,
             scrollbar_button_color=COLORS["sidebar"],
