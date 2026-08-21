@@ -115,7 +115,7 @@ TWEAKS: list = [
             "name": "Hidden", "type": "DWORD", "on": 1, "off": 2}], restart="explorer"),
     # Der Trick wirkt dadurch, dass der Schluessel InprocServer32 mit leerem
     # Standardwert EXISTIERT. Zum Zuruecksetzen muss deshalb der SCHLUESSEL
-    # weg - nur den Wert zu loeschen genuegt nicht, restart="explorer"),
+    # weg - nur den Wert zu loeschen genuegt nicht.
 
     Tweak("classic_menu", "Klassisches Rechtsklick-Menue (Win11)", "Explorer",
           "Stellt das vollstaendige Kontextmenue von Windows 10 wieder her.",
@@ -123,7 +123,7 @@ TWEAKS: list = [
             "path": r"SOFTWARE\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32",
             "name": "", "type": "SZ", "on": "", "off": None, "delete_key": True}], restart="explorer"),
     # Nur bis Windows 11 22H2: ab 23H2 ist Teams eine gewoehnliche App und
-    # wird per Rechtsklick von der Taskleiste geloest, restart="explorer"),
+    # wird per Rechtsklick von der Taskleiste geloest.
 
     Tweak("taskbar_chat", "Chat-Button aus Taskleiste", "Taskleiste",
           "Entfernt den eingebauten Chat-Button (nur bis Windows 11 22H2).",
@@ -192,7 +192,7 @@ TWEAKS: list = [
             "name": "DisableAIDataAnalysis", "type": "DWORD", "on": 1, "off": None}],
           recommended=True, restart="neustart"),
 
-    # ---------------- Explorer ---------------, restart="neustart"),
+    # ---------------- Explorer ---------------
 
     Tweak("open_thispc", "Explorer startet mit 'Dieser PC'", "Explorer",
           "Statt Schnellzugriff oeffnet der Explorer die Laufwerksuebersicht.",
@@ -223,7 +223,7 @@ TWEAKS: list = [
             "name": "ShowSyncProviderNotifications", "type": "DWORD", "on": 0, "off": 1}],
           recommended=True, restart="explorer"),
     # Der Eintrag muss unter SOFTWARE\Classes\CLSID liegen - unter
-    # ...\Explorer\CLSID wertet die Shell ihn nicht aus, restart="explorer"),
+    # ...\Explorer\CLSID wertet die Shell ihn nicht aus.
 
     Tweak("no_gallery", "Galerie aus Navigationsleiste (Win11)", "Explorer",
           "Entfernt den Galerie-Eintrag aus der linken Spalte.",
@@ -293,7 +293,7 @@ TWEAKS: list = [
 
     # ---------------- Updates ----------------
     # NoAutoRebootWithLoggedOnUsers greift laut Microsoft nur zusammen mit
-    # AUOptions=4 ("herunterladen und Installation planen"), restart="explorer"),
+    # AUOptions=4 ("herunterladen und Installation planen").
 
     Tweak("no_auto_restart", "Kein Neustart bei aktiver Nutzung", "Updates",
           "Windows startet nicht von selbst neu, solange jemand angemeldet ist. "
@@ -325,7 +325,7 @@ TWEAKS: list = [
     # ---------------- Gaming ----------------
     # Der Name war irrefuehrend: Diese Werte schalten die Spielaufzeichnung
     # (Game DVR) ab. Die Game Bar selbst ist eine App und oeffnet sich
-    # weiterhin mit Win+G - die laesst sich nur ueber Debloat entfernen, restart="neustart"),
+    # weiterhin mit Win+G - die laesst sich nur ueber Debloat entfernen.
 
     Tweak("game_bar_off", "Spielaufzeichnung (Game DVR) aus", "Gaming",
           "Schaltet die Hintergrundaufnahme von Spielen ab. Die Spielleiste "
@@ -348,29 +348,12 @@ TWEAKS: list = [
             "name": "HwSchMode", "type": "DWORD", "on": 2, "off": None}], restart="neustart"),
 
     # ---------------- Anmeldung ----------------
-    # Hinweis zum ersten Eintrag: Es gibt zwei Wege zur automatischen
-    # Anmeldung. Der verbreitete traegt Benutzername und Passwort IM KLARTEXT
-    # in die Registry (Winlogon\DefaultPassword) - jeder Leseberechtigte kann
-    # es dort abholen. Deshalb wird hier nur die netplwiz-Option
-    # freigeschaltet: Windows legt das Passwort danach verschluesselt als
-    # LSA-Geheimnis ab, nicht im Klartext, restart="neustart"),
-
-    Tweak("passwordless_option", "Automatische Anmeldung freischalten", "Anmeldung",
-          "Blendet in netplwiz die Option 'Benutzer muessen Benutzernamen und "
-          "Kennwort eingeben' wieder ein - bei Microsoft-Konten ist sie ab Werk "
-          "versteckt. Das Passwort wird dabei verschluesselt hinterlegt, nicht "
-          "im Klartext.",
-          [{"hive": "HKLM",
-            "path": r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device",
-            "name": "DevicePasswordLessBuildVersion", "type": "DWORD",
-            "on": 0, "off": 2}],
-          hint="Jetzt Windows-Taste+R druecken, 'netplwiz' eingeben, den Haken "
-               "bei 'Benutzer muessen Benutzernamen und Kennwort eingeben' "
-               "entfernen und das Passwort einmal bestaetigen.", restart="neustart"),
-
+    # Die automatische Anmeldung selbst steckt nicht hier, sondern im Bereich
+    # "Ohne Kennwort anmelden" auf der Tweaks-Seite: Dafuer wird das Kennwort
+    # gebraucht, und ein Haken allein genuegt nicht.
     Tweak("no_wake_password", "Kein Passwort nach dem Ruhezustand", "Anmeldung",
-          "Nach Standby oder Bildschirmsperre wird nicht mehr nach dem Kennwort "
-          "gefragt - weder im Akku- noch im Netzbetrieb.",
+          "Nach dem Aufwachen aus dem Standby wird nicht mehr nach dem "
+          "Kennwort gefragt - im Akku- wie im Netzbetrieb.",
           [{"hive": "HKLM",
             "path": r"SOFTWARE\Policies\Microsoft\Power\PowerSettings"
                     r"\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
@@ -379,9 +362,13 @@ TWEAKS: list = [
             "path": r"SOFTWARE\Policies\Microsoft\Power\PowerSettings"
                     r"\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
             "name": "DCSettingIndex", "type": "DWORD", "on": 0, "off": None},
+           # Auf Geraeten mit Modern Standby (praktisch alle neueren Notebooks)
+           # entscheidet stattdessen dieser Wert.
            {"hive": "HKCU", "path": r"Control Panel\Desktop",
-            "name": "DelayLockInterval", "type": "DWORD", "on": 4294967295, "off": None}],
+            "name": "DelayLockInterval", "type": "DWORD", "on": 4294967295,
+            "off": None}],
           restart="neustart"),
+
     Tweak("no_lockscreen", "Sperrbildschirm ueberspringen", "Anmeldung",
           "Beim Start erscheint direkt die Anmeldung statt des Bildes, das man "
           "erst wegklicken muss.",

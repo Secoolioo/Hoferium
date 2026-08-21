@@ -65,6 +65,73 @@ def aktuelle_kennung() -> tuple:
     return benutzer, domaene
 
 
+def diagnose(reporter=None) -> dict:
+    """Liest alles aus, was ueber die automatische Anmeldung entscheidet.
+
+    Gedacht fuer den Fall "es passiert nichts": statt zu raten, zeigt das
+    Programm den Ist-Zustand und benennt, was ihn blockiert.
+    """
+    def sag(msg, art="log"):
+        if reporter is not None:
+            getattr(reporter, art, reporter.log)(msg)
+
+    werte: dict = {}
+    if not IS_WINDOWS:
+        sag("Diagnose nur unter Windows moeglich.", "warn")
+        return werte
+
+    script = r"""
+$ErrorActionPreference='SilentlyContinue'
+$w = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+$p = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device'
+$o = [ordered]@{}
+$o['AutoAdminLogon']    = (Get-ItemProperty $w).AutoAdminLogon
+$o['DefaultUserName']   = (Get-ItemProperty $w).DefaultUserName
+$o['DefaultDomainName'] = (Get-ItemProperty $w).DefaultDomainName
+$o['AutoLogonCount']    = (Get-ItemProperty $w).AutoLogonCount
+$o['KennwortImKlartext'] = if ((Get-ItemProperty $w).DefaultPassword) { 'ja' } else { 'nein' }
+$o['HelloZwang']        = (Get-ItemProperty $p).DevicePasswordLessBuildVersion
+$o['Angemeldet']        = whoami
+$o['Kontotyp'] = try {
+    $u = Get-LocalUser -Name $env:USERNAME
+    if ($u.PrincipalSource -eq 'MicrosoftAccount') { 'Microsoft-Konto' } else { 'lokales Konto' }
+} catch { 'unbekannt' }
+$o['PIN_eingerichtet'] = if (Test-Path "$env:LOCALAPPDATA\Microsoft\Ngc") { 'moeglich' } else { 'nein' }
+$o | ConvertTo-Json -Compress
+"""
+    res = powershell(script, timeout=120)
+    try:
+        import json
+        werte = json.loads((res.out or "").strip() or "{}")
+    except Exception:
+        sag(f"Diagnose nicht lesbar: {(res.err or res.out)[:120]}", "warn")
+        return werte
+
+    sag("--- Zustand der automatischen Anmeldung ---", "head")
+    for name, wert in werte.items():
+        sag(f"  {name:<20} {wert if wert not in (None, '') else '(nicht gesetzt)'}")
+
+    # Die haeufigsten Blockierer benennen
+    if str(werte.get("HelloZwang")) not in ("0",):
+        sag("Blockiert: Windows erzwingt die Hello-Anmeldung. Der Wert "
+            "DevicePasswordLessBuildVersion muss 0 sein - das setzt "
+            "'EINRICHTEN' inzwischen selbst.", "warn")
+    if str(werte.get("AutoAdminLogon")) != "1":
+        sag("AutoAdminLogon steht nicht auf 1 - die automatische Anmeldung "
+            "ist gar nicht eingeschaltet.", "warn")
+    if werte.get("Kontotyp") == "Microsoft-Konto":
+        sag("Microsoft-Konto erkannt: Als Benutzer muss der Name stehen, den "
+            "'whoami' nach dem Backslash zeigt - nicht die E-Mail-Adresse.", "warn")
+    if werte.get("AutoLogonCount") not in (None, ""):
+        sag("AutoLogonCount ist gesetzt - die Anmeldung gilt dann nur "
+            "begrenzt oft und schaltet sich danach ab.", "warn")
+    if werte.get("PIN_eingerichtet") == "moeglich":
+        sag("Es ist womoeglich eine Windows-Hello-PIN eingerichtet. Falls es "
+            "weiter hakt: PIN unter Einstellungen > Konten > Anmeldeoptionen "
+            "entfernen und erneut versuchen.", "warn")
+    return werte
+
+
 # ------------------------------------------------------------------
 #  Einrichten
 # ------------------------------------------------------------------
@@ -73,6 +140,13 @@ $ErrorActionPreference = 'Stop'
 $pw   = [Console]::In.ReadLine()      # Kennwort kommt ueber die Standardeingabe
 $user = '__USER__'
 $dom  = '__DOMAIN__'
+
+# Ohne diesen Schritt bleibt alles Weitere wirkungslos: Solange Windows
+# "Nur Windows Hello-Anmeldung fuer Microsoft-Konten zulassen" erzwingt
+# (Standard auf Windows 11), ignoriert es AutoAdminLogon vollstaendig.
+$pl = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device'
+if (-not (Test-Path $pl)) { New-Item -Path $pl -Force | Out-Null }
+Set-ItemProperty -Path $pl -Name 'DevicePasswordLessBuildVersion' -Value 0 -Type DWord
 
 $code = @'
 using System;
@@ -179,18 +253,49 @@ def einrichten(benutzer: str, domaene: str, kennwort: str, reporter=None) -> boo
 
 
 def _bestaetigen(benutzer: str, log) -> bool:
-    """Nach dem Einrichten pruefen, ob es wirklich steht."""
+    """Nach dem Einrichten pruefen, ob wirklich alles Noetige steht.
+
+    Geprueft wird nicht nur AutoAdminLogon: Ohne abgeschalteten Hello-Zwang
+    ignoriert Windows die Einstellung, und dann waere eine Erfolgsmeldung
+    schlicht gelogen.
+    """
     st = status()
-    if st.aktiv and st.benutzer.lower() == benutzer.lower():
-        log("Automatische Anmeldung ist eingerichtet.", "ok")
-        if st.klartext_passwort:
-            log("Achtung: In der Registry liegt noch ein Kennwort im Klartext "
-                "(von einem anderen Werkzeug). Es wurde nicht von Hoferium "
-                "geschrieben.", "warn")
-        log("Beim naechsten Start meldet Windows sich ohne Kennworteingabe an.")
-        return True
-    log("Die Einstellung liess sich nicht bestaetigen.", "err")
-    return False
+    if not (st.aktiv and st.benutzer.lower() == benutzer.lower()):
+        log("Die Einstellung liess sich nicht bestaetigen.", "err")
+        return False
+
+    hello_frei = _hello_zwang_aus()
+    if not hello_frei:
+        log("AutoAdminLogon steht, aber Windows erzwingt weiterhin die "
+            "Hello-Anmeldung - dann greift die automatische Anmeldung nicht. "
+            "Bitte 'WARUM GEHT ES NICHT?' druecken.", "err")
+        return False
+
+    log("Automatische Anmeldung ist eingerichtet.", "ok")
+    if st.klartext_passwort:
+        log("Achtung: In der Registry liegt noch ein Kennwort im Klartext "
+            "(von einem anderen Werkzeug). Es wurde nicht von Hoferium "
+            "geschrieben - du kannst es dort loeschen.", "warn")
+    log("Beim naechsten Start meldet Windows sich ohne Kennworteingabe an. "
+        "Klappt es nicht, hilft der Knopf 'WARUM GEHT ES NICHT?'.")
+    return True
+
+
+def _hello_zwang_aus() -> bool:
+    """True, wenn Windows die Hello-Anmeldung NICHT mehr erzwingt."""
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device",
+            0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+        try:
+            wert, _ = winreg.QueryValueEx(key, "DevicePasswordLessBuildVersion")
+        finally:
+            winreg.CloseKey(key)
+        return int(wert) == 0
+    except OSError:
+        return False
 
 
 def _via_sysinternals(benutzer: str, domaene: str, kennwort: str, log) -> bool:

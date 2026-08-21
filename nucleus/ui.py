@@ -1632,7 +1632,13 @@ class HoferiumApp(ctk.CTk):
             fg_color="transparent", border_width=2, border_color=COLORS["muted"],
             text_color=COLORS["muted"], hover_color=COLORS["surface2"],
             command=self._do_autologon_off)
-        self.autologon_off_btn.pack(side="left")
+        self.autologon_off_btn.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            arow, text="WARUM GEHT ES NICHT?", width=210, height=44,
+            font=_font(13, "bold"), fg_color="transparent", border_width=2,
+            border_color=COLORS["amber"], text_color=COLORS["amber"],
+            hover_color=COLORS["surface2"],
+            command=self._do_autologon_diag).pack(side="left")
         self.after(800, self._refresh_autologon_state)
 
         # Kategorien zweispaltig - bei ueber 40 Eintraegen bleibt die Seite
@@ -1809,6 +1815,16 @@ class HoferiumApp(ctk.CTk):
             kennwort = None          # Verweis im Arbeitsspeicher loesen
         rep.done({"ok": 1 if ok else 0, "fail": 0 if ok else 1})
         self._ui_queue.put(("autologon", None))
+
+    def _do_autologon_diag(self):
+        """Zeigt im Protokoll, was die automatische Anmeldung blockiert."""
+        self.show_page("log")
+
+        def worker(rep):
+            autologon.diagnose(rep)
+            rep.done({"ok": 1, "fail": 0})
+
+        self.run_task(worker, "Anmeldung pruefen")
 
     def _do_autologon_off(self):
         if not messagebox.askyesno(

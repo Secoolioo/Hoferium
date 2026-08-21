@@ -11,7 +11,7 @@ WAS IST DAS?
     - Zurueckholen: spielt eine Sicherung auf Knopfdruck wieder ein
     - Software von OFFIZIELLEN Quellen holen (Download oder per winget)
     - Programme sauber deinstallieren - auf Wunsch samt Resten
-    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + 43 Tweaks
+    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + 42 Tweaks
     - Datenmuell entfernen (Temp, Update-Cache, Prefetch, Papierkorb ...)
     - bewaehrte externe Werkzeuge starten (WinUtil, O&O ShutUp10++,
       drei Sysinternals-Programme)

@@ -4,7 +4,7 @@
 
 **Windows-PCs neu aufsetzen, ohne vorher stundenlang Daten zusammenzusuchen.**
 
-[![Version](https://img.shields.io/badge/Version-1.7.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
+[![Version](https://img.shields.io/badge/Version-1.7.1-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-dd0000?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Python](https://img.shields.io/badge/Python-wird%20mitinstalliert-1e1e26?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Lizenz](https://img.shields.io/badge/Lizenz-MIT-1e1e26?style=flat-square&labelColor=1e1e26)](LICENSE)
@@ -34,7 +34,7 @@ selbst ein.
 | **Software** | Installer von den offiziellen Quellen laden oder direkt per `winget` einspielen; fehlt `winget`, richtet Hoferium es selbst ein. Die Programmliste wird beim Start aus diesem Repository aufgefrischt |
 | **Deinstallieren** | Win32- und Store-Programme mit Suchfeld auflisten und entfernen, auf Wunsch samt Datei- und Registry-Resten |
 | **Debloat** | Vorinstallierte Windows-Apps und Herstellerzugaben entfernen – als Ein-Klick-Lauf oder gezielt ausgewählt, Edge optional |
-| **Tweaks** | 43 umkehrbare Einstellungen zu Privatsphäre, Anmeldung, Explorer, Taskleiste, Tempo, Updates und Gaming – jede mit Angabe, ob danach ein Neustart nötig ist |
+| **Tweaks** | 42 umkehrbare Einstellungen zu Privatsphäre, Anmeldung, Explorer, Taskleiste, Tempo, Updates und Gaming – jede mit Angabe, ob danach ein Neustart nötig ist |
 | **Cleaner** | Temp-Dateien (Benutzer und System), Update-Zwischenspeicher, Prefetch, Miniaturansichten und Papierkorb – mit Größenaufstellung vor dem Löschen |
 | **Werkzeuge** | Startet WinUtil, O&O ShutUp10++ und drei Sysinternals-Programme aus den Originalquellen |
 | **Vom Stick booten** | Startet den Rechner neu in die Startoptionen mit Geräteauswahl – oder ins UEFI-Setup |
@@ -127,7 +127,10 @@ Auf der Seite *Tweaks* richtet **„Ohne Kennwort anmelden"** die automatische
 Anmeldung vollständig ein: Benutzer und Kennwort eingeben, fertig – Windows
 startet danach direkt auf den Desktop.
 
-Das Kennwort wird dabei über die LSA verschlüsselt hinterlegt, so wie es auch
+Dabei wird zuerst der Hello-Zwang abgeschaltet – solange Windows „nur
+Windows Hello-Anmeldung zulassen" erzwingt (Standard auf Windows 11 mit
+Microsoft-Konto), ignoriert es die automatische Anmeldung stillschweigend.
+Danach wird das Kennwort über die LSA verschlüsselt hinterlegt, so wie es auch
 Microsofts eigenes Werkzeug *Autologon* macht. Der verbreitete Weg über
 `AutoAdminLogon` legt es stattdessen im **Klartext** in der Registry ab, wo es
 jeder Leseberechtigte abholen kann – diesen Weg geht Hoferium nicht. Das
@@ -139,6 +142,11 @@ Sperrbildschirm überspringen und Anmeldung ohne Strg+Alt+Entf.
 
 All das bedeutet, dass jeder mit Zugang zum Gerät hineinkommt – auf einem
 Notebook entsprechend abwägen. Rückgängig geht es über *Abschalten*.
+
+Meldet Windows nach dem Neustart trotzdem eine Kennwortabfrage, zeigt
+**„Warum geht es nicht?"** den Ist-Zustand: ob der Hello-Zwang noch steht, ob
+`AutoAdminLogon` gesetzt ist, ob ein Microsoft-Konto oder eine Hello-PIN im
+Weg ist.
 
 ### Was bei den Tweaks geprüft wurde
 
