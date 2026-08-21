@@ -11,7 +11,7 @@ WAS IST DAS?
     - Zurueckholen: spielt eine Sicherung auf Knopfdruck wieder ein
     - Software von OFFIZIELLEN Quellen holen (Download oder per winget)
     - Programme sauber deinstallieren - auf Wunsch samt Resten
-    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + 41 Tweaks
+    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + 45 Tweaks
     - Datenmuell entfernen (Temp, Update-Cache, Prefetch, Papierkorb ...)
     - bewaehrte externe Werkzeuge starten (WinUtil, O&O ShutUp10++,
       drei Sysinternals-Programme)
@@ -47,6 +47,20 @@ ZURUECKHOLEN AUF DEM NEUEN PC
 
   Vor dem Ueberschreiben wird der jetzige Stand weggesichert nach
   %LOCALAPPDATA%\Hoferium\backups\vor_import_<Zeit>
+
+
+ANMELDUNG OHNE PASSWORT
+  Unter "Tweaks" gibt es die Kategorie "Anmeldung":
+    - Automatische Anmeldung freischalten: schaltet die Option in netplwiz
+      frei. Danach Windows-Taste+R, "netplwiz" eingeben, den Haken bei
+      "Benutzer muessen Benutzernamen und Kennwort eingeben" entfernen und
+      das Passwort einmal bestaetigen. Windows legt es verschluesselt ab -
+      Hoferium schreibt KEIN Passwort im Klartext in die Registry.
+    - Kein Passwort nach dem Ruhezustand
+    - Sperrbildschirm ueberspringen
+    - Kein Strg+Alt+Entf zum Anmelden
+  Alle vier heissen: Wer an den Rechner kommt, kommt hinein. Auf einem
+  Notebook gut ueberlegen.
 
 
 WENN WINGET FEHLT

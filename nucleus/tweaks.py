@@ -28,8 +28,9 @@ class Tweak:
     name: str
     category: str
     description: str
-    ops: list           # {hive, path, name, type('DWORD'|'SZ'), on, off}
+    ops: list           # {hive, path, name, type('DWORD'|'SZ'|'BINARY'), on, off}
     recommended: bool = False
+    hint: str = ""      # wird nach dem Anwenden ins Protokoll geschrieben
 
 
 TWEAKS: list = [
@@ -250,6 +251,48 @@ TWEAKS: list = [
           [{"hive": "HKLM",
             "path": r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers",
             "name": "HwSchMode", "type": "DWORD", "on": 2, "off": 1}]),
+
+    # ---------------- Anmeldung ----------------
+    # Hinweis zum ersten Eintrag: Es gibt zwei Wege zur automatischen
+    # Anmeldung. Der verbreitete traegt Benutzername und Passwort IM KLARTEXT
+    # in die Registry (Winlogon\DefaultPassword) - jeder Leseberechtigte kann
+    # es dort abholen. Deshalb wird hier nur die netplwiz-Option
+    # freigeschaltet: Windows legt das Passwort danach verschluesselt als
+    # LSA-Geheimnis ab, nicht im Klartext.
+    Tweak("passwordless_option", "Automatische Anmeldung freischalten", "Anmeldung",
+          "Blendet in netplwiz die Option 'Benutzer muessen Benutzernamen und "
+          "Kennwort eingeben' wieder ein - bei Microsoft-Konten ist sie ab Werk "
+          "versteckt. Das Passwort wird dabei verschluesselt hinterlegt, nicht "
+          "im Klartext.",
+          [{"hive": "HKLM",
+            "path": r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device",
+            "name": "DevicePasswordLessBuildVersion", "type": "DWORD",
+            "on": 0, "off": 2}],
+          hint="Jetzt Windows-Taste+R druecken, 'netplwiz' eingeben, den Haken "
+               "bei 'Benutzer muessen Benutzernamen und Kennwort eingeben' "
+               "entfernen und das Passwort einmal bestaetigen."),
+    Tweak("no_wake_password", "Kein Passwort nach dem Ruhezustand", "Anmeldung",
+          "Nach Standby oder Bildschirmsperre wird nicht mehr nach dem Kennwort "
+          "gefragt - weder im Akku- noch im Netzbetrieb.",
+          [{"hive": "HKLM",
+            "path": r"SOFTWARE\Policies\Microsoft\Power\PowerSettings"
+                    r"\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
+            "name": "ACSettingIndex", "type": "DWORD", "on": 0, "off": 1},
+           {"hive": "HKLM",
+            "path": r"SOFTWARE\Policies\Microsoft\Power\PowerSettings"
+                    r"\0e796bdb-100d-47d6-a2d5-f7d2daa51f51",
+            "name": "DCSettingIndex", "type": "DWORD", "on": 0, "off": 1}]),
+    Tweak("no_lockscreen", "Sperrbildschirm ueberspringen", "Anmeldung",
+          "Beim Start erscheint direkt die Anmeldung statt des Bildes, das man "
+          "erst wegklicken muss.",
+          [{"hive": "HKLM",
+            "path": r"SOFTWARE\Policies\Microsoft\Windows\Personalization",
+            "name": "NoLockScreen", "type": "DWORD", "on": 1, "off": 0}]),
+    Tweak("no_ctrl_alt_del", "Kein Strg+Alt+Entf zum Anmelden", "Anmeldung",
+          "Entfernt den zusaetzlichen Tastendruck vor der Kennworteingabe.",
+          [{"hive": "HKLM",
+            "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System",
+            "name": "DisableCAD", "type": "DWORD", "on": 1, "off": 0}]),
 ]
 
 
@@ -281,6 +324,8 @@ class TweakEngine:
                         self._set(op["hive"], op["path"], op["name"], op["type"], value)
                 ok += 1
                 self.r.ok(f"{tw.name}: {'aktiviert' if enable else 'zurueckgesetzt'}")
+                if enable and tw.hint:
+                    self.r.warn(f"  Noch zu tun: {tw.hint}")
             except Exception as e:
                 fail += 1
                 self.r.err(f"{tw.name}: {e}")

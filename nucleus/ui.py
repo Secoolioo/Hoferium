@@ -1584,6 +1584,7 @@ class HoferiumApp(ctk.CTk):
         "Tempo":         (COLORS["amber"], "⚡"),
         "Updates":       (COLORS["magenta"], "↻"),
         "Gaming":        (COLORS["green"], "◈"),
+        "Anmeldung":     (COLORS["cyan"], "⚿"),
     }
 
     def _build_tweaks(self):
