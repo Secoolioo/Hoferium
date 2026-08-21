@@ -4,7 +4,7 @@
 
 **Datensicherung, Software-Bereitstellung und Systempflege für Windows – auf einem USB-Stick.**
 
-[![Version](https://img.shields.io/badge/Version-1.0.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
+[![Version](https://img.shields.io/badge/Version-1.3.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-dd0000?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-1e1e26?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Lizenz](https://img.shields.io/badge/Lizenz-MIT-1e1e26?style=flat-square&labelColor=1e1e26)](LICENSE)
@@ -47,9 +47,11 @@ schreibt alle Ergebnisse direkt daneben.
    installiert, danach die Oberfläche eingerichtet. Das dauert einmalig ein paar
    Minuten und braucht eine Internetverbindung.
 
-Die Sicherung landet in einem Ordner `Sicherung_<PC>_<Datum>` direkt neben der
-`.bat`. Darin liegt eine Datei `WIEDERHERSTELLEN.txt`, die Schritt für Schritt
-beschreibt, wie alles auf dem neuen System zurückkommt.
+Alle Sicherungen sammeln sich in **`Hoferium-Sicherungen/`** neben der `.bat`,
+je Durchgang ein Ordner `Sicherung_<PC>_<Datum>`. Genau dort sucht das Programm
+beim Zurückholen zuerst – der Sammelordner sollte deshalb nicht umbenannt
+werden. In jeder Sicherung liegt eine `WIEDERHERSTELLEN.txt`, die alles auch
+von Hand nachvollziehbar beschreibt.
 
 <div align="center">
   <img src="docs/screenshot-tweaks.png" alt="Tweaks nach Kategorien geordnet" width="49%">
@@ -110,8 +112,9 @@ mit – es bleiben keine Reste liegen, die eine ältere Fassung nicht kennen kan
 
 Dabei gilt:
 
-- Unangetastet bleiben `Sicherung_*`, `Installer/` und Protokolldateien. Eine
-  mitgelieferte `update.json` kann weitere Namen schützen.
+- Unangetastet bleiben `Hoferium-Sicherungen/`, `Installer/` und
+  Protokolldateien. Eine mitgelieferte `update.json` kann weitere Namen
+  schützen.
 - Alles Ersetzte wandert nach `_vorherige_version/` – gelöscht wird nichts.
 - Vor dem Einspielen wird geprüft, ob das Archiv überhaupt ein startfähiges
   Programm enthält; andernfalls bricht der Vorgang ab und die vorhandene

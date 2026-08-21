@@ -45,8 +45,9 @@ ZURUECKHOLEN AUF DEM NEUEN PC
 
 
 WO LANDEN DIE DATEN?
-  - Sicherungen: im Ordner "Sicherung_<PC>_<Datum>" NEBEN der hoferium.bat
-    (also auf dem Stick). Das Ziel laesst sich im Programm aendern.
+  - Sicherungen: alle im Ordner "Hoferium-Sicherungen" neben der hoferium.bat,
+    darin je Durchgang "Sicherung_<PC>_<Datum>". Dort sucht das Tool beim
+    Zurueckholen automatisch - der Ordner sollte nicht umbenannt werden.
   - Installer:  Unterordner "Installer" neben der hoferium.bat.
   - Backups vor destruktiven Aktionen (Registry als .reg) und Log:
       %LOCALAPPDATA%\Hoferium\backups   bzw.   %LOCALAPPDATA%\Hoferium\hoferium.log

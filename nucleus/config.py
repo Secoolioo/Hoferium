@@ -50,6 +50,17 @@ def computer_name() -> str:
     return os.environ.get("COMPUTERNAME", "PC")
 
 
+# Fester Name des Sammelordners. Alle Sicherungen landen darin, und beim
+# Zurueckholen wird genau dieser Ordner zuerst durchsucht - deshalb darf er
+# nicht umbenannt werden.
+BACKUP_ROOT_NAME = "Hoferium-Sicherungen"
+
+
+def backup_root() -> Path:
+    """Sammelordner fuer alle Sicherungen (neben dem Programm)."""
+    return stick_dir() / BACKUP_ROOT_NAME
+
+
 def backup_folder_name() -> str:
     return f"Sicherung_{computer_name()}_{timestamp()}"
 

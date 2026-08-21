@@ -3,6 +3,7 @@ __pycache__/
 *.log
 
 # Ergebnisse, die beim Benutzen entstehen - gehoeren nicht ins Repo
+Hoferium-Sicherungen/
 Sicherung_*/
 Installer/
 _vorherige_version/

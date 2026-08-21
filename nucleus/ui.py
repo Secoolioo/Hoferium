@@ -29,8 +29,8 @@ from . import backup as backup_mod
 from . import config, downloader, restore, sysinfo, tweaks, uninstaller, updater, winutils
 from . import __version__
 from .config import (COLORS, FLAG, FLAG_BRIGHT, LEVEL_COLORS, LEVEL_MARKS,
-                     NAV_ICONS, PAGE_COLORS, TAGLINES, banner_lines, local_dir,
-                     mix, stick_dir)
+                     NAV_ICONS, PAGE_COLORS, TAGLINES, backup_root, banner_lines,
+                     local_dir, mix, stick_dir)
 from .context import Reporter, RunContext
 from .registry import list_installed
 from .winutils import is_admin
@@ -449,12 +449,55 @@ class HoferiumApp(ctk.CTk):
                 f"Version {info.latest} wird von GitHub geladen und ersetzt die "
                 f"vorhandenen Programmdateien.\n\n"
                 f"Quelle: {updater.REPO_URL}\n\n"
-                f"Die bisherige Fassung wird vorher gesichert. Nach dem Update "
-                f"muss Hoferium neu gestartet werden.\n\nFortfahren?"):
+                f"Die bisherige Fassung wird vorher gesichert. Hoferium startet "
+                f"anschliessend von selbst neu.\n\nFortfahren?"):
             return
         target = stick_dir()
-        self.run_task(
-            lambda rep: updater.apply(target, rep), f"Update auf {info.latest}")
+
+        def worker(rep):
+            if updater.apply(target, rep):
+                self._ui_queue.put(("restart", target))
+
+        self.run_task(worker, f"Update auf {info.latest}")
+
+    # ---- Neustart nach dem Update ----
+    RESTART_DELAY_S = 4
+
+    def _schedule_restart(self, target):
+        """Zaehlt sichtbar herunter und startet dann neu."""
+        self._restart_target = target
+        self._restart_left = self.RESTART_DELAY_S
+        self._log_line("Update fertig - Hoferium startet gleich neu.", "head")
+        self._tick_restart()
+
+    def _tick_restart(self):
+        if self._closing:
+            return
+        if self._restart_left <= 0:
+            self._perform_restart()
+            return
+        self._set_status(f"Neustart in {self._restart_left} ...", COLORS["amber"])
+        self._restart_left -= 1
+        self.after(1000, self._tick_restart)
+
+    def _perform_restart(self):
+        target = getattr(self, "_restart_target", None) or stick_dir()
+        if updater.restart_app(target, delay=3):
+            self._log_line("Neustart wird ausgefuehrt ...", "ok")
+            self._closing = True
+            try:
+                self.anim.stop()
+            except Exception:
+                pass
+            self.after(300, self.destroy)
+        else:
+            self._set_status("Neustart nicht moeglich - bitte manuell starten.",
+                             COLORS["amber"])
+            messagebox.showinfo(
+                "Neustart noetig",
+                "Das Update ist eingespielt, der automatische Neustart hat aber "
+                "nicht geklappt.\n\nBitte Hoferium schliessen und ueber "
+                "hoferium.bat neu starten.")
 
     def _pump_ui_queue(self):
         """Nimmt Ergebnisse aus Hintergrund-Threads entgegen (Tk-Thread)."""
@@ -471,6 +514,8 @@ class HoferiumApp(ctk.CTk):
                     self._show_clean_sizes(payload)
                 elif kind == "update":
                     self._apply_update_info(payload)
+                elif kind == "restart":
+                    self._schedule_restart(payload)
                 elif kind == "backups":
                     self._show_backups(payload)
                 elif kind == "catalog":
@@ -875,7 +920,7 @@ class HoferiumApp(ctk.CTk):
             self.sysinfo_cards[title] = rows
 
         env = self._card(p, "dashboard", "HOFERIUM", "◆")
-        for k, v in (("Sicherungsziel", str(stick_dir())),
+        for k, v in (("Sicherungsziel", str(backup_root())),
                      ("Rechte", "Administrator" if self.admin else "eingeschraenkt"),
                      ("Version", __version__)):
             r = ctk.CTkFrame(env, fg_color="transparent")
@@ -966,7 +1011,7 @@ class HoferiumApp(ctk.CTk):
         tgt = self._card(p, "backup", "ZIELORDNER", "▤")
         r = ctk.CTkFrame(tgt, fg_color="transparent")
         r.pack(fill="x", padx=18, pady=(2, 16))
-        self.backup_target = tk.StringVar(value=str(stick_dir()))
+        self.backup_target = tk.StringVar(value=str(backup_root()))
         ctk.CTkEntry(r, textvariable=self.backup_target, font=(MONO_FONT, 12),
                      fg_color=COLORS["surface2"], border_color=COLORS["border"],
                      text_color=COLORS["text"], height=38).pack(
@@ -1596,7 +1641,7 @@ class HoferiumApp(ctk.CTk):
     #  Aktionen
     # ==============================================================
     def _pick_backup_dir(self):
-        d = filedialog.askdirectory(initialdir=str(stick_dir()))
+        d = filedialog.askdirectory(initialdir=str(backup_root().parent))
         if d:
             self.backup_target.set(d)
 
@@ -1615,7 +1660,7 @@ class HoferiumApp(ctk.CTk):
                     f"mit Administrator-Rechten starten.\n\nTrotzdem fortfahren?"):
                 return
         opt = backup_mod.BackupOptions(**{k: v.get() for k, v in self.backup_opts.items()})
-        root = Path(self.backup_target.get() or str(stick_dir()))
+        root = Path(self.backup_target.get() or str(backup_root()))
         outdir = root / config.backup_folder_name()
 
         def worker(rep):

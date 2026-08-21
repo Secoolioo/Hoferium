@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import ssl
+import subprocess
 import tempfile
 import urllib.error
 import urllib.request
@@ -41,7 +42,8 @@ BACKUP_DIR = "_vorherige_version"
 # Nutzers und der Sicherungsordner des Updates selbst.
 KEEP_ALWAYS = (
     BACKUP_DIR,
-    "Sicherung_*",      # angelegte Datensicherungen
+    "Hoferium-Sicherungen",   # Sammelordner der Datensicherungen
+    "Sicherung_*",      # aeltere, lose abgelegte Sicherungen
     "Installer",        # heruntergeladene Installationsdateien
     "*.log",
 )
@@ -206,13 +208,45 @@ def apply(install_dir, reporter=None) -> bool:
             log("Nicht mehr benoetigt und weggeraeumt: " + ", ".join(sorted(obsolete)))
         log(f"Update eingespielt ({len(incoming)} Eintraege).", "ok")
         log(f"Die vorherige Fassung liegt in: {backup}")
-        log("Bitte Hoferium neu starten.", "ok")
         return True
     except Exception as e:
         log(f"Update fehlgeschlagen: {e}", "err")
         return False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def restart_app(install_dir, delay: int = 3) -> bool:
+    """Startet Hoferium neu und gibt zurueck, ob das angestossen wurde.
+
+    Der Neustart laeuft ueber den Starter (*.bat), nicht ueber den eigenen
+    Interpreter: Nach einem Update kann der Programmordner anders heissen -
+    nur der mitgelieferte Starter weiss, was zu starten ist. Er prueft
+    ausserdem die Python-Umgebung und zieht neue Pakete nach.
+
+    Der neue Vorgang wird abgekoppelt gestartet und wartet kurz, damit sich
+    dieses Fenster vorher sauber schliessen kann.
+    """
+    install_dir = Path(install_dir)
+    starters = sorted(install_dir.glob("*.bat"))
+    if not starters:
+        return False
+    starter = starters[0]
+    try:
+        if os.name == "nt":
+            DETACHED = 0x00000008 | 0x00000200      # DETACHED_PROCESS | NEW_GROUP
+            subprocess.Popen(
+                f'timeout /t {max(1, delay)} /nobreak >nul & start "" "{starter.name}"',
+                shell=True, cwd=str(install_dir), creationflags=DETACHED,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL)
+        else:                                        # nur fuer Tests ausserhalb Windows
+            subprocess.Popen(["/bin/sh", "-c", f"sleep {delay}; echo {starter}"],
+                             cwd=str(install_dir), start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        return False
 
 
 def _implausible(src: Path) -> str:

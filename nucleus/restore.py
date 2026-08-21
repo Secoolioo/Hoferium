@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .config import BACKUP_ROOT_NAME
 from .context import RunContext
 from .winutils import IS_WINDOWS, copy_path, is_admin, powershell, robocopy, run
 
@@ -68,7 +69,11 @@ class BackupSet:
 
 
 def find_backups(root) -> list:
-    """Sucht Sicherungsordner neben dem Programm und eine Ebene darunter.
+    """Sucht Sicherungsordner.
+
+    Zuerst im Sammelordner (dort legt Hoferium sie ab), danach direkt neben
+    dem Programm und eine Ebene darunter - damit auch aeltere Sicherungen
+    gefunden werden, die noch lose herumliegen.
 
     Sortierung: Sicherungen dieses Rechners zuerst, darin die neueste oben.
     """
@@ -76,9 +81,13 @@ def find_backups(root) -> list:
     if not root.is_dir():
         return []
 
-    bases = [root]
+    bases = []
+    sammel = root / BACKUP_ROOT_NAME
+    if sammel.is_dir():
+        bases.append(sammel)
+    bases.append(root)
     try:
-        bases += [p for p in root.iterdir() if p.is_dir()]
+        bases += [p for p in root.iterdir() if p.is_dir() and p != sammel]
     except (OSError, PermissionError):
         pass
 
