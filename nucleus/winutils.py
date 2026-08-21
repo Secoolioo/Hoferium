@@ -216,6 +216,51 @@ def copy_path(src, dst, exclude_dirs=None) -> ProcResult:
         return ProcResult(1, "", str(e))
 
 
+# ------------------------------------------------------------------
+#  Neustart ins Boot-/Startmenue
+# ------------------------------------------------------------------
+def is_uefi() -> bool:
+    """True, wenn der Rechner im UEFI-Modus laeuft.
+
+    Nur dann kann Windows direkt ins Firmware-Setup neu starten
+    (`shutdown /fw`); bei klassischem BIOS gibt es diesen Weg nicht.
+    """
+    if not IS_WINDOWS:
+        return False
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                             r"SYSTEM\CurrentControlSet\Control")
+        try:
+            value, _ = winreg.QueryValueEx(key, "PEFirmwareType")
+        finally:
+            winreg.CloseKey(key)
+        return int(value) == 2          # 1 = BIOS, 2 = UEFI
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def reboot(mode: str = "options", delay: int = 10) -> ProcResult:
+    """Startet den Rechner neu.
+
+    mode:
+      'options'  - Startoptionen mit Geraeteauswahl ("Ein Geraet verwenden"),
+                   dort laesst sich der USB-Stick direkt anwaehlen
+      'firmware' - direkt ins UEFI-/BIOS-Setup
+      'normal'   - einfacher Neustart
+    """
+    flags = {"options": ["/r", "/o"],
+             "firmware": ["/r", "/fw"],
+             "normal": ["/r"]}.get(mode, ["/r", "/o"])
+    return run(["shutdown", *flags, "/t", str(max(0, delay)),
+                "/c", "Hoferium: Neustart zum Booten vom Datentraeger"], timeout=60)
+
+
+def cancel_reboot() -> ProcResult:
+    """Bricht einen angekuendigten Neustart wieder ab."""
+    return run(["shutdown", "/a"], timeout=30)
+
+
 def free_space_mb(path) -> float:
     try:
         total, used, free = shutil.disk_usage(str(path))

@@ -44,6 +44,17 @@ ZURUECKHOLEN AUF DEM NEUEN PC
   %LOCALAPPDATA%\Hoferium\backups\vor_import_<Zeit>
 
 
+VOM STICK BOOTEN (Windows neu installieren)
+  Unten links in der Seitenleiste sitzt der Knopf "VOM STICK BOOTEN".
+  Er startet den Rechner neu und bringt dich direkt dorthin, wo du den
+  Windows-Stick auswaehlen kannst:
+    - "Startoptionen - Geraet auswaehlen" (empfohlen): Windows zeigt die
+      Liste der bootfaehigen Datentraeger.
+    - "Firmware / BIOS-Setup": nur bei UEFI-Rechnern.
+  Vorher wird gefragt - und gewarnt, falls noch keine Sicherung lief.
+  Nach dem Ausloesen bleiben 15 Sekunden zum Abbrechen.
+
+
 WO LANDEN DIE DATEN?
   - Sicherungen: alle im Ordner "Hoferium-Sicherungen" neben der hoferium.bat,
     darin je Durchgang "Sicherung_<PC>_<Datum>". Dort sucht das Tool beim

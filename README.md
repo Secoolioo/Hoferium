@@ -4,7 +4,7 @@
 
 **Datensicherung, Software-Bereitstellung und Systempflege für Windows – auf einem USB-Stick.**
 
-[![Version](https://img.shields.io/badge/Version-1.3.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
+[![Version](https://img.shields.io/badge/Version-1.4.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-dd0000?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-1e1e26?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Lizenz](https://img.shields.io/badge/Lizenz-MIT-1e1e26?style=flat-square&labelColor=1e1e26)](LICENSE)
@@ -37,6 +37,7 @@ schreibt alle Ergebnisse direkt daneben.
 | **Tweaks** | 41 umkehrbare Einstellungen zu Privatsphäre, Explorer, Taskleiste, Tempo, Updates und Gaming |
 | **Cleaner** | Temporäre Dateien, Update-Zwischenspeicher und Papierkorb – mit Größenanzeige vor dem Löschen |
 | **Werkzeuge** | Startet bewährte Fremdprogramme (WinUtil, O&O ShutUp10++, Sysinternals) aus den Originalquellen |
+| **Vom Stick booten** | Startet den Rechner neu und direkt in die Startoptionen mit Geräteauswahl – oder ins UEFI-Setup |
 
 ## Benutzung
 
@@ -123,6 +124,18 @@ Dabei gilt:
   automatisch zurückgeholt.
 - Der Starter merkt sich, für welche Version die Python-Umgebung eingerichtet
   wurde, und zieht nach einem Update die Pakete aus `requirements.txt` nach.
+
+## Neustart zum Installieren
+
+Unten in der Seitenleiste liegt **„Vom Stick booten"** – von jeder Seite aus
+erreichbar. Der Rechner startet damit neu und landet wahlweise in den
+Windows-Startoptionen unter *Ein Gerät verwenden* (dort steht der Windows-Stick
+in der Liste) oder direkt im UEFI-Setup. Läuft der Rechner nicht im
+UEFI-Modus, entfällt die zweite Möglichkeit und wird gar nicht erst angeboten.
+
+Vorher wird nachgefragt – und ausdrücklich gewarnt, falls in dieser Sitzung
+noch keine Sicherung angelegt wurde. Nach dem Auslösen bleiben 15 Sekunden
+Zeit, den Neustart per Knopfdruck wieder abzublasen.
 
 ## Sicherheitsnetz
 

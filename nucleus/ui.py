@@ -361,6 +361,8 @@ class HoferiumApp(ctk.CTk):
         self._clean_scanning = False
         self._last_cancel = 0.0
         self._update_state = "idle"
+        self._backup_done = False
+        self._reboot_win = None
         self._update_info = None
         # Rueckkanal fuer Hintergrund-Threads. Tk darf NUR aus dem
         # Hauptthread angefasst werden - Ergebnisse kommen deshalb hier an
@@ -600,9 +602,23 @@ class HoferiumApp(ctk.CTk):
         bar = ctk.CTkFrame(self, width=246, corner_radius=0, fg_color=COLORS["sidebar"])
         bar.grid(row=1, column=0, sticky="nsew")
         bar.grid_propagate(False)
+        # Aufteilung: Kopf / Navigation (dehnbar, notfalls scrollend) / Fussteil.
+        # Nur so bleibt der Fussteil auch bei kleinem Fenster sichtbar - sonst
+        # schoebe die Navigation ihn unten heraus.
+        bar.grid_columnconfigure(0, weight=1)
+        bar.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(bar, text=config.APP_SUBTITLE, font=(MONO_FONT, 11),
-                     text_color=COLORS["dim"]).pack(anchor="w", padx=20, pady=(16, 12))
+                     text_color=COLORS["dim"]).grid(row=0, column=0, sticky="w",
+                                                    padx=20, pady=(16, 8))
+        navbox = ctk.CTkScrollableFrame(
+            bar, fg_color="transparent", corner_radius=0,
+            scrollbar_button_color=COLORS["sidebar"],
+            scrollbar_button_hover_color=COLORS["surface2"])
+        navbox.grid(row=1, column=0, sticky="nsew")
+        navbox.grid_columnconfigure(0, weight=1)
+        foot = ctk.CTkFrame(bar, fg_color="transparent")
+        foot.grid(row=2, column=0, sticky="ew")
 
         nav = [
             ("dashboard", "Start"),
@@ -618,27 +634,168 @@ class HoferiumApp(ctk.CTk):
             ("info", "Info"),
         ]
         for key, label in nav:
-            color = PAGE_COLORS[key]
             btn = ctk.CTkButton(
-                bar, text=f"  {NAV_ICONS[key]}   {label}", anchor="w",
+                navbox, text=f"  {NAV_ICONS[key]}   {label}", anchor="w",
                 font=_font(14), fg_color="transparent", text_color=COLORS["muted"],
-                hover_color=COLORS["surface2"], corner_radius=9, height=40,
+                hover_color=COLORS["surface2"], corner_radius=9, height=38,
                 border_width=0, command=lambda k=key: self.show_page(k),
             )
-            btn.pack(fill="x", padx=10, pady=2)
+            btn.pack(fill="x", padx=6, pady=1)
             btn.bind("<Enter>", lambda _e, k=key: self._hover_nav(k, True))
             btn.bind("<Leave>", lambda _e, k=key: self._hover_nav(k, False))
             self._nav_buttons[key] = btn
 
-        ctk.CTkFrame(bar, fg_color="transparent").pack(fill="both", expand=True)
+        # Fussteil: immer erreichbar, egal wie hoch das Fenster ist.
+        self.boot_btn = ctk.CTkButton(
+            foot, text="⏻   VOM STICK BOOTEN", height=40, font=_font(12, "bold"),
+            corner_radius=9, fg_color="transparent", border_width=2,
+            border_color=COLORS["red"], text_color=COLORS["red"],
+            hover_color=mix(COLORS["surface2"], COLORS["red"], 0.25),
+            command=self._ask_boot)
+        self.boot_btn.pack(fill="x", padx=10, pady=(10, 8))
 
         self.admin_label = ctk.CTkLabel(
-            bar, text="", font=(MONO_FONT, 12),
+            foot, text="", font=(MONO_FONT, 12),
             text_color=COLORS["green"] if self.admin else COLORS["amber"])
         self.admin_label.pack(anchor="w", padx=20, pady=(0, 6))
 
-        self.sideline = GradientLine(bar, height=3, segments=24)
-        self.sideline.pack(fill="x", padx=10, pady=(0, 14))
+        self.sideline = GradientLine(foot, height=3, segments=24)
+        self.sideline.pack(fill="x", padx=10, pady=(0, 12))
+
+    # --------------------------------------------------------------
+    #  Neustart zum Booten vom Windows-Stick
+    # --------------------------------------------------------------
+    REBOOT_DELAY_S = 15      # genug Zeit, es sich anders zu ueberlegen
+
+    def _ask_boot(self):
+        if self._running:
+            return messagebox.showinfo(
+                "Es laeuft noch etwas",
+                "Warte, bis die laufende Aufgabe fertig ist - sonst bleibt sie "
+                "unvollstaendig.")
+
+        warn = ""
+        if not self._backup_done:
+            warn = ("\n\nACHTUNG: In dieser Sitzung wurde noch KEINE Sicherung "
+                    "angelegt. Nach dem Neuinstallieren sind die Daten weg.")
+        win = ctk.CTkToplevel(self)
+        win.title("Vom Stick booten")
+        win.configure(fg_color=COLORS["bg"])
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        ctk.CTkLabel(win, text="⏻  NEU STARTEN UND VOM STICK BOOTEN",
+                     font=(MONO_FONT, 16, "bold"), text_color=COLORS["red"]
+                     ).pack(anchor="w", padx=24, pady=(22, 6))
+        ctk.CTkLabel(
+            win, text=("Der Rechner startet neu. Waehle, wohin es danach gehen "
+                       "soll - der Windows-Stick muss dafuer eingesteckt sein."
+                       + warn),
+            font=_font(12), text_color=COLORS["muted"] if not warn else COLORS["amber"],
+            justify="left", wraplength=520).pack(anchor="w", padx=24, pady=(0, 14))
+
+        def choose(mode):
+            win.grab_release()
+            win.destroy()
+            self._start_reboot(mode)
+
+        opts = [("Startoptionen - Geraet auswaehlen", "options", COLORS["red"],
+                 "Empfohlen: Windows zeigt 'Ein Geraet verwenden' mit der Liste "
+                 "der bootfaehigen Datentraeger."),
+                ("Firmware / BIOS-Setup", "firmware", COLORS["amber"],
+                 "Direkt ins UEFI-Setup, dort Bootreihenfolge oder Bootmenue.")]
+        for label, mode, col, note in opts:
+            if mode == "firmware" and not winutils.is_uefi():
+                continue                       # ohne UEFI gibt es diesen Weg nicht
+            box = ctk.CTkFrame(win, fg_color=COLORS["surface"], corner_radius=10)
+            box.pack(fill="x", padx=24, pady=5)
+            ctk.CTkButton(box, text=label, height=42, font=_font(13, "bold"),
+                          corner_radius=9, fg_color=col,
+                          hover_color=mix(col, "#000000", 0.3), text_color="#08101c",
+                          command=lambda m=mode: choose(m)).pack(
+                fill="x", padx=12, pady=(12, 4))
+            ctk.CTkLabel(box, text=note, font=_font(11), text_color=COLORS["dim"],
+                         justify="left", wraplength=470).pack(anchor="w", padx=14,
+                                                              pady=(0, 10))
+        if not winutils.is_uefi():
+            ctk.CTkLabel(win, text="(Dieser PC laeuft nicht im UEFI-Modus - der "
+                                   "Weg ins Firmware-Setup entfaellt.)",
+                         font=_font(11), text_color=COLORS["dim"]).pack(
+                anchor="w", padx=24)
+
+        ctk.CTkButton(win, text="ABBRECHEN", height=38, font=_font(12, "bold"),
+                      fg_color="transparent", border_width=2,
+                      border_color=COLORS["surface3"], text_color=COLORS["muted"],
+                      hover_color=COLORS["surface2"],
+                      command=lambda: (win.grab_release(), win.destroy())).pack(
+            fill="x", padx=24, pady=(12, 22))
+        win.update_idletasks()
+        # mittig ueber dem Hauptfenster
+        x = self.winfo_x() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - win.winfo_height()) // 3
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    def _start_reboot(self, mode):
+        res = winutils.reboot(mode, delay=self.REBOOT_DELAY_S)
+        if res.rc != 0:
+            self._log_line(f"Neustart nicht moeglich: "
+                           f"{(res.err or res.out).strip()[:120] or res.rc}", "err")
+            messagebox.showerror(
+                "Neustart nicht moeglich",
+                "Windows hat den Neustart abgelehnt.\n\n"
+                f"{(res.err or res.out).strip()[:300]}\n\n"
+                "Ohne Administrator-Rechte ist das nicht moeglich.")
+            return
+        self._log_line(f"Neustart angekuendigt ({self.REBOOT_DELAY_S} Sekunden).",
+                       "head")
+        self._reboot_left = self.REBOOT_DELAY_S
+        self._reboot_win = ctk.CTkToplevel(self)
+        w = self._reboot_win
+        w.title("Neustart")
+        w.configure(fg_color=COLORS["bg"])
+        w.resizable(False, False)
+        w.transient(self)
+        w.protocol("WM_DELETE_WINDOW", lambda: None)
+        self._reboot_label = ctk.CTkLabel(w, text="", font=(MONO_FONT, 18, "bold"),
+                                          text_color=COLORS["red"])
+        self._reboot_label.pack(padx=40, pady=(26, 8))
+        ctk.CTkLabel(w, text="Stick eingesteckt? Dann gleich im Menue auswaehlen.",
+                     font=_font(12), text_color=COLORS["muted"]).pack(padx=40)
+        ctk.CTkButton(w, text="DOCH NICHT - ABBRECHEN", height=42,
+                      font=_font(13, "bold"), fg_color=COLORS["surface3"],
+                      hover_color=COLORS["red_hover"], text_color=COLORS["text"],
+                      command=self._abort_reboot).pack(padx=40, pady=(16, 26))
+        w.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - w.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - w.winfo_height()) // 3
+        w.geometry(f"+{max(0, x)}+{max(0, y)}")
+        self._tick_reboot()
+
+    def _tick_reboot(self):
+        if not getattr(self, "_reboot_win", None) or self._closing:
+            return
+        try:
+            self._reboot_label.configure(
+                text=f"Neustart in {self._reboot_left} Sekunden")
+        except tk.TclError:
+            return
+        if self._reboot_left <= 0:
+            return                      # Windows uebernimmt jetzt
+        self._reboot_left -= 1
+        self.after(1000, self._tick_reboot)
+
+    def _abort_reboot(self):
+        winutils.cancel_reboot()
+        self._log_line("Neustart abgebrochen.", "warn")
+        self._set_status("Neustart abgebrochen.", COLORS["muted"])
+        win = getattr(self, "_reboot_win", None)
+        if win is not None:
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+            self._reboot_win = None
 
     def _hover_nav(self, key, entering):
         if key == self._current:
@@ -1666,7 +1823,9 @@ class HoferiumApp(ctk.CTk):
         def worker(rep):
             outdir.mkdir(parents=True, exist_ok=True)
             ctx = RunContext(outdir, rep, admin=self.admin)
-            backup_mod.BackupJob(ctx).run(opt)
+            result = backup_mod.BackupJob(ctx).run(opt)
+            if result.get("ok"):
+                self._backup_done = True
 
         self.run_task(worker, "Sicherung laeuft")
 
