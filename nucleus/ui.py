@@ -520,6 +520,8 @@ class HoferiumApp(ctk.CTk):
                     self._schedule_restart(payload)
                 elif kind == "backups":
                     self._show_backups(payload)
+                elif kind == "winget":
+                    self._refresh_winget_state(payload)
                 elif kind == "catalog":
                     apps, source = payload
                     self._render_catalog(apps, source)
@@ -1440,7 +1442,20 @@ class HoferiumApp(ctk.CTk):
                          "Download-Adressen aendern.")
         self.software_source = ctk.CTkLabel(card, text="", font=(MONO_FONT, 11),
                                             text_color=COLORS["dim"])
-        self.software_source.pack(anchor="w", padx=18, pady=(0, 4))
+        self.software_source.pack(anchor="w", padx=18, pady=(0, 2))
+
+        wrow = ctk.CTkFrame(card, fg_color="transparent")
+        wrow.pack(fill="x", padx=18, pady=(0, 6))
+        self.winget_label = ctk.CTkLabel(wrow, text="winget: wird geprueft ...",
+                                         font=(MONO_FONT, 11),
+                                         text_color=COLORS["dim"])
+        self.winget_label.pack(side="left")
+        self.winget_btn = ctk.CTkButton(
+            wrow, text="WINGET EINRICHTEN", width=180, height=30,
+            font=_font(11, "bold"), fg_color="transparent", border_width=2,
+            border_color=COLORS["amber"], text_color=COLORS["amber"],
+            hover_color=COLORS["surface2"], command=self._do_setup_winget)
+        # wird nur eingeblendet, wenn winget wirklich fehlt
         self.software_holder = ctk.CTkFrame(card, fg_color="transparent")
         self.software_holder.pack(fill="x", padx=10, pady=6)
         self._render_catalog(list(downloader.CATALOG), "eingebaut")
@@ -1460,6 +1475,11 @@ class HoferiumApp(ctk.CTk):
         except Exception:
             apps, source = list(downloader.CATALOG), "eingebaut"
         self._ui_queue.put(("catalog", (apps, source)))
+        # winget-Pruefung startet einen Prozess - deshalb hier im Thread
+        try:
+            self._ui_queue.put(("winget", downloader.DownloadManager.winget_available()))
+        except Exception:
+            self._ui_queue.put(("winget", False))
 
     def _render_catalog(self, apps, source):
         for w in self.software_holder.winfo_children():
@@ -1842,11 +1862,50 @@ class HoferiumApp(ctk.CTk):
         if not apps:
             return self._need_selection()
         if not downloader.DownloadManager.winget_available():
-            return messagebox.showwarning(
-                "winget fehlt",
-                "winget ist nicht verfuegbar. Bitte 'Installer speichern' nutzen.")
+            if not messagebox.askyesno(
+                    "winget fehlt",
+                    "Auf diesem PC ist winget (App-Installer) nicht vorhanden.\n\n"
+                    "Hoferium kann es selbst einrichten - dazu werden die "
+                    "Pakete von Microsoft geladen. Das dauert ein paar Minuten "
+                    "und braucht eine Internetverbindung.\n\n"
+                    "Jetzt einrichten und danach installieren?"):
+                return
         self.run_task(lambda rep: downloader.DownloadManager(rep).install_all(apps),
                       "Installiere per winget")
+
+    def _do_setup_winget(self):
+        if downloader.DownloadManager.winget_available():
+            self._set_status("winget ist bereits vorhanden.", COLORS["green"])
+            return
+        if not messagebox.askyesno(
+                "winget einrichten",
+                "Die Pakete werden von Microsoft geladen und installiert "
+                "(App-Installer samt Abhaengigkeiten).\n\n"
+                "Das dauert ein paar Minuten. Fortfahren?"):
+            return
+
+        def worker(rep):
+            mgr = downloader.DownloadManager(rep)
+            ok = mgr.ensure_winget()
+            rep.done({"ok": 1 if ok else 0, "fail": 0 if ok else 1})
+            self._ui_queue.put(("winget", ok))
+
+        self.run_task(worker, "winget einrichten")
+
+    def _refresh_winget_state(self, available=None):
+        """Zeigt an, ob winget nutzbar ist, und blendet den Einrichten-Knopf
+        nur dann ein, wenn er gebraucht wird."""
+        if available is None:
+            available = downloader.DownloadManager.winget_available()
+        if available:
+            self.winget_label.configure(text="winget: vorhanden",
+                                        text_color=COLORS["green"])
+            self.winget_btn.pack_forget()
+        else:
+            self.winget_label.configure(
+                text="winget: fehlt - fuer 'Direkt installieren' noetig",
+                text_color=COLORS["amber"])
+            self.winget_btn.pack(side="left", padx=(10, 0))
 
     def _load_uninstall(self):
         self.uninstall_status.configure(text="Lade Programme ...")

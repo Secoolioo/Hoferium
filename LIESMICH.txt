@@ -1,28 +1,33 @@
 ========================================================
-  Hoferium  -  PC Toolkit
-  RIP - BACKUP - DEBLOAT - REBUILD
+  Hoferium
+  SICHERN - AUFRAEUMEN - ZURUECK
 ========================================================
 
 WAS IST DAS?
-  Ein Werkzeug fuer Windows, das beim Wechseln und Neu-Aufsetzen von PCs hilft:
-    - Datensicherung (Browser inkl. Lesezeichen-HTML, Windows-Key, WLAN-
-      Passwoerter, Programmliste, Treiber, Sticky Notes, Mail-Profile ...)
+  Ein Werkzeug fuer Windows 10/11, das beim Neu-Aufsetzen von PCs hilft:
+    - Datensicherung: Browser-Profile und Lesezeichen (als HTML zum
+      Importieren), WLAN-Passwoerter, Windows-Schluessel, Programmliste,
+      Treiber, Kurznotizen, Thunderbird und Outlook, eigene Dateien
+    - Zurueckholen: spielt eine Sicherung auf Knopfdruck wieder ein
     - Software von OFFIZIELLEN Quellen holen (Download oder per winget)
-    - Programme sauber deinstallieren - inkl. Datei- und Registry-Resten
-    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + Tweaks
-    - Datenmuell entfernen (Temp, Update-Cache, Papierkorb ...)
-    - bewaehrte externe Tools starten (Chris Titus WinUtil, O&O ShutUp10++)
+    - Programme sauber deinstallieren - auf Wunsch samt Resten
+    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + 41 Tweaks
+    - Datenmuell entfernen (Temp, Update-Cache, Prefetch, Papierkorb ...)
+    - bewaehrte externe Werkzeuge starten (WinUtil, O&O ShutUp10++,
+      drei Sysinternals-Programme)
+    - Neustart direkt ins Boot-Menue, um vom Windows-Stick zu starten
 
 
 SO BENUTZT DU ES
-  1. Diesen Ordner (hoferium.bat + Ordner "Hoferium") auf den USB-Stick kopieren.
-  2. Auf dem Windows-PC hoferium.bat per Doppelklick starten.
+  1. Diesen ganzen Ordner auf den USB-Stick kopieren.
+  2. Auf dem Windows-PC hoferium.bat per Doppelklick starten und die
+     Nachfrage nach Administrator-Rechten bestaetigen. Ohne diese Rechte
+     startet das Programm nicht.
   3. Beim ERSTEN Start richtet sich alles automatisch ein:
-       - Administrator-Rechte werden angefordert
-       - falls noetig wird Python automatisch installiert
+       - falls noetig wird Python installiert (systemweit)
        - die Oberflaeche (customtkinter) wird eingerichtet
-     Das braucht einmalig Internet und ein paar Minuten. Falls die Meldung
-     kommt "bitte noch einmal starten", einfach hoferium.bat erneut starten.
+     Das braucht einmalig Internet und ein paar Minuten. Kommt die Meldung
+     "bitte noch einmal starten", einfach hoferium.bat erneut starten.
   4. Ab dann startet direkt das Programm mit der Oberflaeche.
 
 
@@ -34,7 +39,7 @@ ZURUECKHOLEN AUF DEM NEUEN PC
   Auf Knopfdruck zurueck kommen:
     - WLAN-Netze samt Passwoertern
     - Firefox-Profil (damit auch dessen Passwoerter und Lesezeichen)
-    - Thunderbird-Profil, Kurznotizen, Outlook-Dateien
+    - Thunderbird-Profil, Kurznotizen, Outlook-Dateien, hosts
     - Eigene Dateien, Treiber, Programme (ueber winget)
 
   Nur die Lesezeichen von Chrome/Edge/Brave brauchen zwei Klicks von Hand -
@@ -42,6 +47,15 @@ ZURUECKHOLEN AUF DEM NEUEN PC
 
   Vor dem Ueberschreiben wird der jetzige Stand weggesichert nach
   %LOCALAPPDATA%\Hoferium\backups\vor_import_<Zeit>
+
+
+WENN WINGET FEHLT
+  winget (der "App-Installer") gibt es auf Windows 11 immer, auf aelteren
+  Windows-10-Staenden oft nicht. Hoferium richtet es dann selbst ein: auf
+  der Seite "Software holen" steht der Zustand, dazu ein Knopf
+  "WINGET EINRICHTEN". Beim Klick auf "Direkt installieren" wird vorher
+  gefragt. Klappt die Einrichtung nicht, oeffnet sich der Microsoft Store
+  zum Nachholen von Hand - "Installer speichern" geht in jedem Fall.
 
 
 VOM STICK BOOTEN (Windows neu installieren)
@@ -56,30 +70,54 @@ VOM STICK BOOTEN (Windows neu installieren)
 
 
 WO LANDEN DIE DATEN?
-  - Sicherungen: alle im Ordner "Hoferium-Sicherungen" neben der hoferium.bat,
-    darin je Durchgang "Sicherung_<PC>_<Datum>". Dort sucht das Tool beim
-    Zurueckholen automatisch - der Ordner sollte nicht umbenannt werden.
-  - Installer:  Unterordner "Installer" neben der hoferium.bat.
-  - Backups vor destruktiven Aktionen (Registry als .reg) und Log:
-      %LOCALAPPDATA%\Hoferium\backups   bzw.   %LOCALAPPDATA%\Hoferium\hoferium.log
+  Auf dem Stick, neben der hoferium.bat:
+    - Hoferium-Sicherungen\   alle Sicherungen, je Durchgang ein Ordner
+                              "Sicherung_<PC>_<Datum>". Genau dort sucht das
+                              Tool beim Zurueckholen - nicht umbenennen.
+    - Installer\              heruntergeladene Installationsdateien
+
+  Auf dem Rechner, unter %LOCALAPPDATA%\Hoferium\:
+    - venv\          die Python-Umgebung
+    - hoferium.log   Protokoll aller Laeufe
+    - backups\       Registry-Sicherungen, verschobene Ordner,
+                     Stand vor einem Import
+    - tools\         portable Fremdwerkzeuge
+
+  In jedem Sicherungsordner liegen ZUSAMMENFASSUNG.txt (was geklappt hat)
+  und WIEDERHERSTELLEN.txt (Anleitung, falls du es von Hand machen willst).
 
 
-SICHERHEIT
+SICHERHEIT UND GRENZEN
   - Passwoerter werden NICHT geknackt. Browser-Passwoerter werden als Teil
-    des Profils gesichert. Fuer Chrome/Edge zusaetzlich den eingebauten
-    CSV-Export nutzen (Hinweis liegt im Sicherungsordner).
+    des Profils gesichert. Bei Chrome/Edge/Brave sind sie an das alte
+    Windows-Konto gebunden und nach einer Neuinstallation NICHT mehr
+    lesbar - dafuer gibt es auf der Seite "Datensicherung" einen
+    Assistenten, der den CSV-Export anstoesst, solange das alte System
+    noch laeuft. Firefox braucht das nicht.
+  - Die Sicherung ist NICHT verschluesselt: WLAN-Passwoerter stehen im
+    Klartext, die Browser-Profile liegen vollstaendig darin. Wer den Stick
+    hat, hat die Daten - entsprechend aufbewahren.
   - Vor Deinstallation/Debloat/Tweaks wird - wenn moeglich - ein
     Wiederherstellungspunkt gesetzt und jede betroffene Registry als .reg
     gesichert. Tweaks lassen sich mit ZURUECKSETZEN rueckgaengig machen.
-  - Der WinUtil-Start ist transparent: das offizielle Tool oeffnet sich in
-    einem sichtbaren Fenster, nichts laeuft versteckt.
+    Reste werden verschoben, nicht geloescht.
+  - Endgueltig sind dagegen der Cleaner und das Leeren des Papierkorbs.
+    Beides fragt vorher nach; der Papierkorb ist nicht vorausgewaehlt.
+  - Kein Systemabbild: gesichert werden Daten und Einstellungen, keine
+    Partitionen und kein installiertes Windows.
+  - Externe Werkzeuge starten sichtbar in einem eigenen Fenster, nichts
+    laeuft versteckt.
 
 
 BEDIENUNG
   Links die Navigation, unten die Statusleiste (Fortschritt, Abbrechen).
   Waehrend eine Aufgabe laeuft, bleibt die Oberflaeche bedienbar - die
-  Arbeit passiert im Hintergrund. Auf der Seite LOG siehst du live, was
-  gerade geschieht; das gleiche Protokoll landet in der Log-Datei.
+  Arbeit passiert im Hintergrund. Es laeuft immer nur eine Aufgabe.
+  Auf der Seite LOG siehst du live, was gerade geschieht.
+
+  ABBRECHEN einmal geklickt beendet den Lauf nach dem aktuellen Schritt.
+  Ein ZWEITER Klick innerhalb von zwei Sekunden erzwingt den Stopp und
+  beendet auch laufende Fremdprogramme.
 
 
 AUFBAU (fuer Neugierige)
@@ -87,25 +125,38 @@ AUFBAU (fuer Neugierige)
       hoferium.bat          <- hiermit starten
       LIESMICH.txt          <- diese Anleitung
 
-  Alles Weitere wird beim ersten Start ausgeblendet und liegt darunter:
-      nucleus/              Quellcode (Python, objektorientiert)
-        config.py           Pfade, Farben, ASCII-Banner
-        winutils.py         Windows-Helfer (Admin, Subprozesse, robocopy ...)
-        registry.py         installierte Programme / AppX auslesen
-        context.py          Reporter (Thread<->UI) + RunContext
-        sysinfo.py          Systemuebersicht fuer die Startseite
-        backup.py           BackupJob (Datensicherung)
-        downloader.py       DownloadManager (Installer/winget)
-        uninstaller.py      Uninstaller (Deinstallation + Deep-Clean + Debloat)
+  Alles Weitere wird bei jedem Start ausgeblendet und liegt darunter:
+      nucleus\              Programmcode (Python)
+        ui.py               Oberflaeche, Animationen, Seiten
+        backup.py           Datensicherung
+        restore.py          Zurueckholen
+        sysinfo.py          Systemuebersicht der Startseite
+        downloader.py       Software holen, winget einrichten
+        uninstaller.py      Deinstallation und Debloat
         tweaks.py           Tweaks, Cleaner, externe Werkzeuge
-        updater.py          Versionspruefung gegen GitHub
-        ui.py               Oberflaeche + Animationen
-      apps.json             Programmliste (laesst sich pflegen)
+        registry.py         installierte Programme auslesen
+        winutils.py         Windows-Hilfsfunktionen
+        updater.py          Versionspruefung und Update
+        config.py           Pfade, Farben, Banner
+        context.py          Verbindung Hintergrundarbeit <-> Oberflaeche
+      apps.json             Softwareliste
+      requirements.txt      benoetigte Python-Pakete
       VERSION               Versionsstand
-      README.md, LICENSE, docs/, .git/
+      README.md, LICENSE, docs\, .git\
 
   Ausgeblendet heisst nur "im Explorer unsichtbar" - es funktioniert alles
   unveraendert weiter. Wieder einblenden (Eingabeaufforderung im Ordner):
       attrib -h nucleus apps.json VERSION README.md LICENSE docs .git
 
-Systemvoraussetzung: Windows 10/11. Alles Weitere richtet hoferium.bat ein.
+
+UPDATES
+  Beim Start prueft Hoferium, ob eine neuere Fassung vorliegt. Ohne
+  Internet wird die Pruefung nach einer Minute stillschweigend
+  uebersprungen. Ein Update spielt den kompletten neuen Stand ein und
+  startet das Programm danach selbst neu; Sicherungen und Installer
+  bleiben unangetastet.
+
+  Projektseite: https://github.com/Secoolioo/Hoferium
+
+Systemvoraussetzung: Windows 10/11 und Administrator-Rechte.
+Alles Weitere richtet hoferium.bat ein.

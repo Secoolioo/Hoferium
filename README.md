@@ -4,7 +4,7 @@
 
 **Windows-PCs neu aufsetzen, ohne vorher stundenlang Daten zusammenzusuchen.**
 
-[![Version](https://img.shields.io/badge/Version-1.4.2-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
+[![Version](https://img.shields.io/badge/Version-1.5.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-dd0000?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Python](https://img.shields.io/badge/Python-wird%20mitinstalliert-1e1e26?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Lizenz](https://img.shields.io/badge/Lizenz-MIT-1e1e26?style=flat-square&labelColor=1e1e26)](LICENSE)
@@ -31,7 +31,7 @@ selbst ein.
 | --- | --- |
 | **Datensicherung** | Browser-Profile (Chrome, Edge, Firefox, Brave, Vivaldi, Opera, Chromium, Yandex – weitere werden automatisch erkannt), Lesezeichen als importierbare HTML, WLAN-Profile samt Passwörtern, Windows-Schlüssel, Programmliste, Treiber, Kurznotizen, Thunderbird und Outlook-`.pst`, persönliche Ordner sowie hosts, Drucker, Netzlaufwerke und Dienste |
 | **Zurückholen** | Spielt eine Sicherung wieder ein: WLAN-Netze, Firefox- und Thunderbird-Profil, Kurznotizen, Outlook-Dateien, hosts, persönliche Ordner, Treiber und Programme über `winget import` |
-| **Software** | Installer von den offiziellen Quellen laden oder direkt per `winget` einspielen – die Programmliste wird beim Start aus diesem Repository aufgefrischt |
+| **Software** | Installer von den offiziellen Quellen laden oder direkt per `winget` einspielen; fehlt `winget`, richtet Hoferium es selbst ein. Die Programmliste wird beim Start aus diesem Repository aufgefrischt |
 | **Deinstallieren** | Win32- und Store-Programme mit Suchfeld auflisten und entfernen, auf Wunsch samt Datei- und Registry-Resten |
 | **Debloat** | Vorinstallierte Windows-Apps und Herstellerzugaben entfernen – als Ein-Klick-Lauf oder gezielt ausgewählt, Edge optional |
 | **Tweaks** | 41 umkehrbare Einstellungen zu Privatsphäre, Explorer, Taskleiste, Tempo, Updates und Gaming |
@@ -177,6 +177,29 @@ auch laufende Fremdprogramme.
   <img src="docs/screenshot-tweaks.png" alt="Tweaks nach Kategorien geordnet" width="49%">
   <img src="docs/screenshot-cleaner.png" alt="Cleaner mit Größenaufstellung" width="49%">
 </div>
+
+## Wenn winget fehlt
+
+`winget` (der App-Installer) ist auf Windows 11 vorhanden, auf älteren
+Windows-10-Ständen oft nicht. Hoferium richtet es dann selbst ein – die
+Seite *Software holen* zeigt den Zustand an und bietet einen Knopf dafür;
+beim Klick auf *Direkt installieren* wird vorher nachgefragt.
+
+Die Einrichtung läuft in Stufen, von der zuverlässigsten zur letzten
+Möglichkeit, und prüft nach jeder, ob `winget` nun antwortet:
+
+1. Das offizielle PowerShell-Modul `Microsoft.WinGet.Client` mit
+   `Repair-WinGetPackageManager` – der von Microsoft vorgesehene Weg, der
+   fehlende Bestandteile selbst nachzieht.
+2. Direktinstallation der Pakete von Microsoft (`aka.ms/getwinget` samt
+   Laufzeitbibliotheken). Die Oberflächen-Bibliothek wird über die
+   Release-Liste ihres Projekts gesucht, damit keine Versionsnummer fest
+   verdrahtet ist.
+3. Klappt beides nicht, öffnet sich der Microsoft Store zum Nachholen von
+   Hand – dann bleibt weiterhin *Installer speichern* als Weg.
+
+Dasselbe greift beim Zurückholen, wenn Programme über `winget import`
+nachinstalliert werden sollen.
 
 ## Neustart zum Installieren
 

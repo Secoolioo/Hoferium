@@ -193,6 +193,11 @@ class DownloadManager:
 
     # ---------- Direkt per winget installieren ----------
     def install_all(self, apps: list) -> dict:
+        # Fehlt winget, wird es zuerst beschafft - sonst schluege jede
+        # einzelne Installation fehl.
+        if not self.ensure_winget():
+            self.r.done({"ok": 0, "fail": len(apps)})
+            return {"ok": 0, "fail": len(apps)}
         ok = 0
         fail = 0
         total = len(apps)
@@ -228,22 +233,113 @@ class DownloadManager:
         return run(["winget", "--version"], timeout=30).rc == 0
 
     def ensure_winget(self) -> bool:
-        """Sorgt dafuer, dass winget nutzbar ist.
+        """Sorgt dafuer, dass winget nutzbar ist - notfalls durch Installation.
 
-        Auf aelteren Windows-10-Staenden fehlt es. Statt zu scheitern, wird
-        der offizielle App Installer aus dem Microsoft Store angestossen.
+        Auf aelteren Windows-10-Staenden fehlt der App Installer. Es wird
+        stufenweise vorgegangen, von der zuverlaessigsten zur letzten
+        Moeglichkeit; nach jeder Stufe wird geprueft, ob winget nun laeuft.
         """
         if self.winget_available():
             return True
-        self.r.warn("winget ist nicht verfuegbar - versuche den App Installer "
-                    "zu oeffnen ...")
-        res = run(["powershell", "-NoProfile", "-Command",
-                   "Start-Process 'ms-windows-store://pdp/?productid=9NBLGGH4NNS1'"],
-                  timeout=60)
-        if res.rc == 0:
-            self.r.log("Microsoft Store wurde geoeffnet. Dort 'App Installer' "
-                       "installieren und danach erneut versuchen.")
-        else:
-            self.r.err("winget fehlt und der Store liess sich nicht oeffnen. "
-                       "Bitte 'Installer speichern' nutzen.")
+        self.r.head("winget fehlt - Installation wird versucht ...")
+
+        stufen = [
+            ("offizielles PowerShell-Modul", self._winget_via_module),
+            ("Paket von Microsoft laden", self._winget_via_msix),
+        ]
+        for name, schritt in stufen:
+            if self.r.cancelled:
+                return False
+            self.r.log(f"Versuch: {name} ...")
+            try:
+                schritt()
+            except Exception as e:
+                self.r.warn(f"{name}: {e}")
+            if self.winget_available():
+                self.r.ok("winget ist jetzt einsatzbereit.")
+                return True
+
+        # Letzter Ausweg: den Store oeffnen, damit es der Nutzer selbst holen kann
+        self.r.warn("Automatische Installation hat nicht geklappt - oeffne den "
+                    "Microsoft Store.")
+        run(["powershell", "-NoProfile", "-Command",
+             "Start-Process 'ms-windows-store://pdp/?productid=9NBLGGH4NNS1'"],
+            timeout=60)
+        self.r.err("Bitte im Store 'App-Installer' installieren und es dann "
+                   "erneut versuchen. Solange geht 'Installer speichern'.")
         return False
+
+    def _winget_via_module(self) -> None:
+        """Der von Microsoft vorgesehene Weg: Repair-WinGetPackageManager.
+
+        Holt fehlende Bestandteile selbst nach und ist damit langlebiger als
+        fest verdrahtete Download-Adressen.
+        """
+        script = (
+            "$ErrorActionPreference='Stop';"
+            "$ProgressPreference='SilentlyContinue';"
+            "[Net.ServicePointManager]::SecurityProtocol="
+            "[Net.SecurityProtocolType]::Tls12;"
+            "if (-not (Get-Module -ListAvailable Microsoft.WinGet.Client)) {"
+            "  Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 "
+            "    -Force -Scope AllUsers | Out-Null;"
+            "  Set-PSRepository -Name PSGallery -InstallationPolicy Trusted "
+            "    -ErrorAction SilentlyContinue;"
+            "  Install-Module -Name Microsoft.WinGet.Client -Force "
+            "    -Repository PSGallery -Scope AllUsers | Out-Null }"
+            "Import-Module Microsoft.WinGet.Client;"
+            "Repair-WinGetPackageManager -AllUsers -Latest;"
+            "Write-Output 'MODUL_OK'"
+        )
+        res = powershell(script, timeout=900)
+        if "MODUL_OK" not in (res.out or ""):
+            raise RuntimeError((res.err or "kein Ergebnis").strip()[:160])
+
+    def _winget_via_msix(self) -> None:
+        """Direktinstallation der Pakete von Microsoft.
+
+        aka.ms-Adressen zeigen immer auf die aktuelle Fassung; die
+        Oberflaechen-Bibliothek wird ueber die Release-Liste ihres Projekts
+        gesucht, damit keine Versionsnummer fest verdrahtet ist.
+        """
+        script = r"""
+$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+$tmp = Join-Path $env:TEMP ('winget_setup_' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+try {
+    $vc = Join-Path $tmp 'vclibs.appx'
+    Invoke-WebRequest -Uri 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx' -OutFile $vc
+    Add-AppxPackage -Path $vc -ErrorAction SilentlyContinue
+
+    # Oberflaechen-Bibliothek: neueste 2.8-Fassung aus der Release-Liste holen
+    try {
+        $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/microsoft-ui-xaml/releases' -Headers @{'User-Agent'='Hoferium'}
+        $asset = $rel | Where-Object { $_.tag_name -like 'v2.8*' } |
+                 Select-Object -First 1 -ExpandProperty assets |
+                 Where-Object { $_.name -like '*x64.appx' } | Select-Object -First 1
+        if ($asset) {
+            $xaml = Join-Path $tmp 'xaml.appx'
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $xaml
+            Add-AppxPackage -Path $xaml -ErrorAction SilentlyContinue
+        }
+    } catch { }
+
+    $bundle = Join-Path $tmp 'winget.msixbundle'
+    Invoke-WebRequest -Uri 'https://aka.ms/getwinget' -OutFile $bundle
+    $lic = Join-Path $tmp 'license.xml'
+    try {
+        Invoke-WebRequest -Uri 'https://aka.ms/getwingetlicense' -OutFile $lic
+        Add-AppxProvisionedPackage -Online -PackagePath $bundle -LicensePath $lic | Out-Null
+    } catch {
+        Add-AppxPackage -Path $bundle
+    }
+    Write-Output 'MSIX_OK'
+} finally {
+    Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+"""
+        res = powershell(script, timeout=900)
+        if "MSIX_OK" not in (res.out or ""):
+            raise RuntimeError((res.err or "kein Ergebnis").strip()[:160])

@@ -325,7 +325,11 @@ class RestoreJob:
     def _programs(self) -> None:
         json_file = self.src / "04_Programme" / "winget-programme.json"
         if run(["winget", "--version"], timeout=30).rc != 0:
-            raise RuntimeError("winget ist auf diesem PC nicht verfuegbar")
+            # Auf einem frisch aufgesetzten PC fehlt winget oft - dann wird
+            # es hier beschafft, statt den Schritt aufzugeben.
+            from .downloader import DownloadManager
+            if not DownloadManager(self.r).ensure_winget():
+                raise RuntimeError("winget liess sich nicht einrichten")
         self.r.log("Das kann je nach Umfang lange dauern ...")
         res = run(["winget", "import", "-i", str(json_file),
                    "--accept-package-agreements", "--accept-source-agreements",
