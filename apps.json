@@ -1,0 +1,90 @@
+{
+  "_hinweis": "Diese Liste kann jederzeit im Repo gepflegt werden - Hoferium laedt sie beim Start und funktioniert dadurch auch dann noch, wenn sich Download-Adressen aendern.",
+  "schema": 1,
+  "apps": [
+    {
+      "name": "Mozilla Firefox",
+      "category": "Browser",
+      "winget_id": "Mozilla.Firefox",
+      "url": "https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=de",
+      "filename": "firefox-setup.exe"
+    },
+    {
+      "name": "Google Chrome",
+      "category": "Browser",
+      "winget_id": "Google.Chrome",
+      "url": "https://dl.google.com/chrome/install/standalonesetup64.exe",
+      "filename": "chrome-setup.exe"
+    },
+    {
+      "name": "Brave",
+      "category": "Browser",
+      "winget_id": "Brave.Brave"
+    },
+    {
+      "name": "7-Zip",
+      "category": "Werkzeuge",
+      "winget_id": "7zip.7zip"
+    },
+    {
+      "name": "VLC media player",
+      "category": "Medien",
+      "winget_id": "VideoLAN.VLC"
+    },
+    {
+      "name": "Notepad++",
+      "category": "Werkzeuge",
+      "winget_id": "Notepad++.Notepad++"
+    },
+    {
+      "name": "LibreOffice",
+      "category": "Office",
+      "winget_id": "TheDocumentFoundation.LibreOffice"
+    },
+    {
+      "name": "Adobe Acrobat Reader",
+      "category": "Office",
+      "winget_id": "Adobe.Acrobat.Reader.64-bit"
+    },
+    {
+      "name": "GIMP",
+      "category": "Grafik",
+      "winget_id": "GIMP.GIMP"
+    },
+    {
+      "name": "PowerToys",
+      "category": "Werkzeuge",
+      "winget_id": "Microsoft.PowerToys"
+    },
+    {
+      "name": "VS Code",
+      "category": "Entwicklung",
+      "winget_id": "Microsoft.VisualStudioCode"
+    },
+    {
+      "name": "Git",
+      "category": "Entwicklung",
+      "winget_id": "Git.Git"
+    },
+    {
+      "name": "Spotify",
+      "category": "Medien",
+      "winget_id": "Spotify.Spotify"
+    },
+    {
+      "name": "Discord",
+      "category": "Kommunikation",
+      "winget_id": "Discord.Discord"
+    },
+    {
+      "name": "Steam",
+      "category": "Gaming",
+      "winget_id": "Valve.Steam"
+    },
+    {
+      "name": "qBittorrent",
+      "category": "Werkzeuge",
+      "winget_id": "qBittorrent.qBittorrent"
+    }
+  ]
+}

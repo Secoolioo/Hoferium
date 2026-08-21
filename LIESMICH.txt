@@ -1,0 +1,68 @@
+========================================================
+  Hoferium  -  PC Toolkit
+  RIP - BACKUP - DEBLOAT - REBUILD
+========================================================
+
+WAS IST DAS?
+  Ein Werkzeug fuer Windows, das beim Wechseln und Neu-Aufsetzen von PCs hilft:
+    - Datensicherung (Browser inkl. Lesezeichen-HTML, Windows-Key, WLAN-
+      Passwoerter, Programmliste, Treiber, Sticky Notes, Mail-Profile ...)
+    - Software von OFFIZIELLEN Quellen holen (Download oder per winget)
+    - Programme sauber deinstallieren - inkl. Datei- und Registry-Resten
+    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + Tweaks
+    - Datenmuell entfernen (Temp, Update-Cache, Papierkorb ...)
+    - bewaehrte externe Tools starten (Chris Titus WinUtil, O&O ShutUp10++)
+
+
+SO BENUTZT DU ES
+  1. Diesen Ordner (hoferium.bat + Ordner "Hoferium") auf den USB-Stick kopieren.
+  2. Auf dem Windows-PC hoferium.bat per Doppelklick starten.
+  3. Beim ERSTEN Start richtet sich alles automatisch ein:
+       - Administrator-Rechte werden angefordert
+       - falls noetig wird Python automatisch installiert
+       - die Oberflaeche (customtkinter) wird eingerichtet
+     Das braucht einmalig Internet und ein paar Minuten. Falls die Meldung
+     kommt "bitte noch einmal starten", einfach hoferium.bat erneut starten.
+  4. Ab dann startet direkt das Programm mit der Oberflaeche.
+
+
+WO LANDEN DIE DATEN?
+  - Sicherungen: im Ordner "Sicherung_<PC>_<Datum>" NEBEN der hoferium.bat
+    (also auf dem Stick). Das Ziel laesst sich im Programm aendern.
+  - Installer:  Unterordner "Installer" neben der hoferium.bat.
+  - Backups vor destruktiven Aktionen (Registry als .reg) und Log:
+      %LOCALAPPDATA%\Hoferium\backups   bzw.   %LOCALAPPDATA%\Hoferium\hoferium.log
+
+
+SICHERHEIT
+  - Passwoerter werden NICHT geknackt. Browser-Passwoerter werden als Teil
+    des Profils gesichert. Fuer Chrome/Edge zusaetzlich den eingebauten
+    CSV-Export nutzen (Hinweis liegt im Sicherungsordner).
+  - Vor Deinstallation/Debloat/Tweaks wird - wenn moeglich - ein
+    Wiederherstellungspunkt gesetzt und jede betroffene Registry als .reg
+    gesichert. Tweaks lassen sich mit ZURUECKSETZEN rueckgaengig machen.
+  - Der WinUtil-Start ist transparent: das offizielle Tool oeffnet sich in
+    einem sichtbaren Fenster, nichts laeuft versteckt.
+
+
+BEDIENUNG
+  Links die Navigation, unten die Statusleiste (Fortschritt, Abbrechen).
+  Waehrend eine Aufgabe laeuft, bleibt die Oberflaeche bedienbar - die
+  Arbeit passiert im Hintergrund. Auf der Seite LOG siehst du live, was
+  gerade geschieht; das gleiche Protokoll landet in der Log-Datei.
+
+
+AUFBAU (fuer Neugierige)
+  hoferium.bat            Starter (Einrichtung + Programmstart)
+  nucleus/                Quellcode (Python, objektorientiert)
+    config.py          Pfade, Farben, ASCII-Banner
+    winutils.py        Windows-Helfer (Admin, Subprozesse, robocopy ...)
+    registry.py        installierte Programme / AppX auslesen
+    context.py         Reporter (Thread<->UI) + RunContext
+    backup.py          BackupJob (Datensicherung)
+    downloader.py      DownloadManager (Installer/winget)
+    uninstaller.py     Uninstaller (Deinstallation + Deep-Clean + Debloat)
+    tweaks.py          Tweaks, Cleaner, externe Tools
+    ui.py              Oberflaeche + Animationen
+
+Systemvoraussetzung: Windows 10/11. Alles Weitere richtet hoferium.bat ein.

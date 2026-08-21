@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+# Windows-Dateien brauchen CRLF, sonst startet die Batch-Datei nicht sauber
+*.bat text eol=crlf
+*.txt text eol=crlf
+
+*.ico binary
+*.png binary
