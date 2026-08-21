@@ -49,10 +49,21 @@ set "VENV=%LOCALAPPDATA%\Hoferium\venv"
 set "VPY=%VENV%\Scripts\python.exe"
 set "VPYW=%VENV%\Scripts\pythonw.exe"
 
-REM --- Bereits fertig eingerichtet? Dann direkt starten ---
+REM --- Ist die Umgebung fertig UND passt sie zur Programmversion? ---
 REM  Geprueft wird die Marker-Datei, NICHT pythonw.exe: die entsteht schon
 REM  beim Anlegen der Umgebung, also bevor customtkinter installiert ist.
-if exist "%VENV%\.ready" goto run
+REM  Im Marker steht die Version, fuer die eingerichtet wurde. Nach einem
+REM  Update mit neuen Abhaengigkeiten stimmt sie nicht mehr - dann werden
+REM  die Pakete nachgezogen, statt mit einer unpassenden Umgebung zu starten.
+set "WANTVER="
+if exist "%HOFERIUM_DIR%VERSION" set /p WANTVER=<"%HOFERIUM_DIR%VERSION"
+set "HAVEVER="
+if exist "%VENV%\.ready" set /p HAVEVER=<"%VENV%\.ready"
+if not exist "%VENV%\.ready" goto freshsetup
+if "%HAVEVER%"=="%WANTVER%" goto run
+goto refresh
+
+:freshsetup
 if exist "%VENV%" rd /s /q "%VENV%" >nul 2>&1
 
 echo(
@@ -121,21 +132,56 @@ if not exist "%VPY%" (
 )
 echo Aktualisiere pip ...
 "%VPY%" -m pip install --upgrade pip
-echo Installiere Oberflaeche (customtkinter) ...
-"%VPY%" -m pip install customtkinter
+call :installdeps
 "%VPY%" -c "import customtkinter" >nul 2>&1
 if %errorlevel% neq 0 (
     echo(
-    echo [FEHLER] customtkinter-Installation fehlgeschlagen - Internet pruefen.
+    echo [FEHLER] Installation der Oberflaeche fehlgeschlagen - Internet pruefen.
     echo Die unvollstaendige Umgebung wird entfernt, damit der naechste Start
     echo sauber neu einrichtet.
     rd /s /q "%VENV%" >nul 2>&1
     pause
     exit /b 1
 )
-REM  Erst JETZT als fertig markieren
->"%VENV%\.ready" echo ok
+REM  Erst JETZT als fertig markieren - mit der Version, fuer die es gilt
+>"%VENV%\.ready" echo %WANTVER%
 echo Einrichtung abgeschlossen.
+goto run
+
+REM ------------------------------------------------------------
+REM  Nach einem Update: Abhaengigkeiten der neuen Fassung nachziehen.
+REM ------------------------------------------------------------
+:refresh
+echo(
+echo Neue Programmversion erkannt (%HAVEVER% -^> %WANTVER%).
+echo Pruefe die benoetigten Pakete ...
+call :installdeps
+"%VPY%" -c "import customtkinter" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo(
+    echo [FEHLER] Die Pakete liessen sich nicht aktualisieren.
+    echo Bitte Internetverbindung pruefen und erneut starten.
+    pause
+    exit /b 1
+)
+>"%VENV%\.ready" echo %WANTVER%
+echo Bereit.
+goto run
+
+REM ------------------------------------------------------------
+REM  Installiert die benoetigten Pakete. Liegt eine requirements.txt
+REM  bei, hat sie Vorrang - so kann eine kuenftige Fassung weitere
+REM  Pakete anfordern, ohne dass dieser Starter sie kennen muss.
+REM ------------------------------------------------------------
+:installdeps
+if exist "%HOFERIUM_DIR%requirements.txt" goto reqfile
+echo Installiere Oberflaeche (customtkinter) ...
+"%VPY%" -m pip install --upgrade customtkinter
+goto :eof
+:reqfile
+echo Installiere Pakete aus requirements.txt ...
+"%VPY%" -m pip install --upgrade -r "%HOFERIUM_DIR%requirements.txt"
+goto :eof
 
 :run
 set "HOFERIUM_HOME=%HOFERIUM_DIR%"
@@ -156,7 +202,7 @@ REM ------------------------------------------------------------
 :hideclutter
 pushd "%HOFERIUM_DIR%"
 if errorlevel 1 goto :eof
-for %%I in (nucleus docs .git .github .gitignore .gitattributes README.md LICENSE VERSION apps.json _vorherige_version) do if exist "%%I" attrib +h "%%I" >nul 2>&1
+for %%I in (nucleus docs .git .github .gitignore .gitattributes README.md LICENSE VERSION apps.json requirements.txt update.json _vorherige_version) do if exist "%%I" attrib +h "%%I" >nul 2>&1
 popd
 goto :eof
 

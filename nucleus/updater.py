@@ -11,6 +11,7 @@ und es wird nie etwas ohne Bestaetigung des Nutzers ersetzt.
 """
 from __future__ import annotations
 
+import fnmatch
 import io
 import json
 import os
@@ -34,9 +35,16 @@ REPO_URL = f"https://github.com/{REPO}"
 _UA = "Hoferium-Updater"
 _TIMEOUT = 10          # kurz halten: der Start darf nie darauf warten
 
-# Diese Namen werden beim Update ersetzt bzw. angelegt.
-_UPDATE_ITEMS = ("nucleus", "hoferium.bat", "LIESMICH.txt", "VERSION",
-                 "README.md", "apps.json")
+BACKUP_DIR = "_vorherige_version"
+
+# Diese Eintraege ueberstehen jedes Update unveraendert: die Ergebnisse des
+# Nutzers und der Sicherungsordner des Updates selbst.
+KEEP_ALWAYS = (
+    BACKUP_DIR,
+    "Sicherung_*",      # angelegte Datensicherungen
+    "Installer",        # heruntergeladene Installationsdateien
+    "*.log",
+)
 
 
 def parse_version(text: str) -> tuple:
@@ -117,12 +125,16 @@ def check(current_version: str) -> UpdateInfo:
 
 
 def apply(install_dir, reporter=None) -> bool:
-    """Laedt das Repo-ZIP und ersetzt die Programmdateien in install_dir.
+    """Spielt den aktuellen Repo-Stand ein - auch bei geaenderter Struktur.
 
-    Vorgehen mit Sicherheitsnetz:
-      * ZIP komplett in den Speicher laden und pruefen
-      * bisherige Dateien in einen Sicherungsordner verschieben
-      * neue Dateien einspielen; scheitert das, wird zurueckgerollt
+    Der Inhalt des Archivs ist massgeblich: Was dort liegt, wird eingespielt;
+    was hier liegt und dort fehlt, wandert in den Sicherungsordner. Damit
+    ueberleben Umbenennungen (z. B. eines Programmordners) und geloeschte
+    Dateien ein Update, ohne Reste zu hinterlassen - die alte Fassung muss
+    die neue Struktur dafuer nicht kennen.
+
+    Unangetastet bleiben Nutzerdaten (Sicherungen, geladene Installer) sowie
+    alles, was eine mitgelieferte update.json zusaetzlich schuetzt.
     """
     def log(msg, level="info"):
         if reporter is not None:
@@ -141,7 +153,7 @@ def apply(install_dir, reporter=None) -> bool:
         return False
 
     tmp = Path(tempfile.mkdtemp(prefix="hoferium_upd_"))
-    backup = install_dir / "_vorherige_version"
+    backup = install_dir / BACKUP_DIR
     try:
         with zipfile.ZipFile(io.BytesIO(blob)) as zf:
             root = _zip_root(zf)
@@ -150,29 +162,39 @@ def apply(install_dir, reporter=None) -> bool:
                 return False
             _safe_extract(zf, tmp)
         src = tmp / root
-        if not (src / "nucleus").is_dir():
-            log("Im Archiv fehlt der Programmordner - abgebrochen.", "err")
+
+        problem = _implausible(src)
+        if problem:
+            log(f"Archiv wirkt unvollstaendig ({problem}) - abgebrochen.", "err")
             return False
+
+        protect = _protected_names(src)
+        incoming = sorted(p.name for p in src.iterdir())
+        obsolete = [p.name for p in install_dir.iterdir()
+                    if p.name not in incoming and not _is_protected(p.name, protect)]
 
         if backup.exists():
             shutil.rmtree(backup, ignore_errors=True)
         backup.mkdir(parents=True, exist_ok=True)
-        moved = []
-        for name in _UPDATE_ITEMS:
-            cur = install_dir / name
-            if cur.exists():
-                shutil.move(str(cur), str(backup / name))
-                moved.append(name)
+
+        moved = []          # (Name, im Backup) - fuer den Rollback
         try:
-            for name in _UPDATE_ITEMS:
-                new = src / name
-                if new.exists():
-                    if new.is_dir():
-                        shutil.copytree(new, install_dir / name)
-                    else:
-                        shutil.copy2(new, install_dir / name)
-        except Exception as e:                       # Rollback
-            log(f"Einspielen fehlgeschlagen ({e}) - stelle vorherige Version wieder her.", "err")
+            # 1) Alles beiseiteraeumen, was ersetzt oder ueberfluessig ist
+            for name in incoming + obsolete:
+                cur = install_dir / name
+                if cur.exists() and not _is_protected(name, protect):
+                    shutil.move(str(cur), str(backup / name))
+                    moved.append(name)
+            # 2) Neuen Stand einspielen
+            for item in src.iterdir():
+                dst = install_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(item, dst)
+                else:
+                    shutil.copy2(item, dst)
+        except Exception as e:
+            log(f"Einspielen fehlgeschlagen ({e}) - stelle die vorherige "
+                f"Fassung wieder her.", "err")
             for name in moved:
                 dst = install_dir / name
                 if dst.exists():
@@ -180,14 +202,55 @@ def apply(install_dir, reporter=None) -> bool:
                 shutil.move(str(backup / name), str(dst))
             return False
 
-        log("Update eingespielt. Bitte Hoferium neu starten.", "ok")
-        log(f"Die vorherige Version liegt in: {backup}")
+        if obsolete:
+            log("Nicht mehr benoetigt und weggeraeumt: " + ", ".join(sorted(obsolete)))
+        log(f"Update eingespielt ({len(incoming)} Eintraege).", "ok")
+        log(f"Die vorherige Fassung liegt in: {backup}")
+        log("Bitte Hoferium neu starten.", "ok")
         return True
     except Exception as e:
         log(f"Update fehlgeschlagen: {e}", "err")
         return False
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _implausible(src: Path) -> str:
+    """Prueft grob, ob das Archiv ein brauchbares Programm enthaelt.
+
+    Ohne diese Pruefung koennte ein leeres oder kaputtes Archiv die
+    vorhandene Installation ersetzen.
+    """
+    if not any(src.glob("*.bat")):
+        return "kein Starter enthalten"
+    packages = [d for d in src.iterdir()
+                if d.is_dir() and (d / "__main__.py").is_file()]
+    if not packages:
+        return "kein startbarer Programmordner enthalten"
+    return ""
+
+
+def _protected_names(src: Path) -> list:
+    """Namen/Muster, die beim Update nicht angefasst werden.
+
+    Die Grundliste steht hier; eine update.json im Archiv kann sie
+    erweitern - so kann eine kuenftige Fassung mitteilen, was zusaetzlich
+    erhalten bleiben muss, ohne dass diese Fassung sie kennt.
+    """
+    protect = list(KEEP_ALWAYS)
+    manifest = src / "update.json"
+    if manifest.is_file():
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            extra = data.get("protect") or []
+            protect += [str(x) for x in extra if isinstance(x, str)]
+        except Exception:
+            pass
+    return protect
+
+
+def _is_protected(name: str, protect: list) -> bool:
+    return any(fnmatch.fnmatch(name, pattern) for pattern in protect)
 
 
 def _zip_root(zf: zipfile.ZipFile):

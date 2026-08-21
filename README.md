@@ -74,6 +74,30 @@ den Stick und sollte nach dem Import wieder gelöscht werden.
 
 Hoferium entschlüsselt keine Passwörter und liest keine Anmeldedaten aus.
 
+## Aktualisierung
+
+Beim Start prüft Hoferium, ob in diesem Repository eine neuere Fassung liegt.
+Antwortet das Netz nicht, wird die Prüfung nach einer Minute stillschweigend
+übersprungen – der Start hängt nie daran.
+
+Ein Update spielt den Repository-Stand vollständig ein, statt einzelne Dateien
+zu ersetzen. Dadurch überstehen auch **Strukturänderungen** ein Update: Wird
+ein Ordner umbenannt oder eine Datei entfernt, verschwindet der alte Stand
+mit – es bleiben keine Reste liegen, die eine ältere Fassung nicht kennen kann.
+
+Dabei gilt:
+
+- Unangetastet bleiben `Sicherung_*`, `Installer/` und Protokolldateien. Eine
+  mitgelieferte `update.json` kann weitere Namen schützen.
+- Alles Ersetzte wandert nach `_vorherige_version/` – gelöscht wird nichts.
+- Vor dem Einspielen wird geprüft, ob das Archiv überhaupt ein startfähiges
+  Programm enthält; andernfalls bricht der Vorgang ab und die vorhandene
+  Installation bleibt unberührt.
+- Schlägt das Einspielen mitten im Vorgang fehl, wird der vorherige Stand
+  automatisch zurückgeholt.
+- Der Starter merkt sich, für welche Version die Python-Umgebung eingerichtet
+  wurde, und zieht nach einem Update die Pakete aus `requirements.txt` nach.
+
 ## Sicherheitsnetz
 
 Alle eingreifenden Funktionen sind umkehrbar angelegt:

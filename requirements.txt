@@ -1,0 +1,4 @@
+# Pakete, die Hoferium zur Laufzeit braucht.
+# Der Starter installiert diese Liste bei der Einrichtung und nach jedem
+# Update, bei dem sich die Versionsnummer geaendert hat.
+customtkinter>=5.2
