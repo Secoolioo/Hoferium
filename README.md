@@ -4,7 +4,7 @@
 
 **Windows-PCs neu aufsetzen, ohne vorher stundenlang Daten zusammenzusuchen.**
 
-[![Version](https://img.shields.io/badge/Version-1.6.1-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
+[![Version](https://img.shields.io/badge/Version-1.7.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-dd0000?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Python](https://img.shields.io/badge/Python-wird%20mitinstalliert-1e1e26?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Lizenz](https://img.shields.io/badge/Lizenz-MIT-1e1e26?style=flat-square&labelColor=1e1e26)](LICENSE)
@@ -34,7 +34,7 @@ selbst ein.
 | **Software** | Installer von den offiziellen Quellen laden oder direkt per `winget` einspielen; fehlt `winget`, richtet Hoferium es selbst ein. Die Programmliste wird beim Start aus diesem Repository aufgefrischt |
 | **Deinstallieren** | Win32- und Store-Programme mit Suchfeld auflisten und entfernen, auf Wunsch samt Datei- und Registry-Resten |
 | **Debloat** | Vorinstallierte Windows-Apps und Herstellerzugaben entfernen – als Ein-Klick-Lauf oder gezielt ausgewählt, Edge optional |
-| **Tweaks** | 45 umkehrbare Einstellungen zu Privatsphäre, Anmeldung, Explorer, Taskleiste, Tempo, Updates und Gaming |
+| **Tweaks** | 43 umkehrbare Einstellungen zu Privatsphäre, Anmeldung, Explorer, Taskleiste, Tempo, Updates und Gaming – jede mit Angabe, ob danach ein Neustart nötig ist |
 | **Cleaner** | Temp-Dateien (Benutzer und System), Update-Zwischenspeicher, Prefetch, Miniaturansichten und Papierkorb – mit Größenaufstellung vor dem Löschen |
 | **Werkzeuge** | Startet WinUtil, O&O ShutUp10++ und drei Sysinternals-Programme aus den Originalquellen |
 | **Vom Stick booten** | Startet den Rechner neu in die Startoptionen mit Geräteauswahl – oder ins UEFI-Setup |
@@ -123,19 +123,33 @@ Hoferium entschlüsselt keine Passwörter und liest keine Anmeldedaten aus.
 
 ### Anmeldung ohne Passwort
 
-Unter *Tweaks → Anmeldung* lässt sich die Kennwortabfrage abschalten. Für die
-**automatische Anmeldung beim Start** schaltet Hoferium die entsprechende
-Option in `netplwiz` frei, statt Benutzername und Kennwort in die Registry zu
-schreiben – der verbreitete Weg über `AutoAdminLogon` legt das Passwort dort im
-**Klartext** ab, wo es jeder Leseberechtigte abholen kann. Nach dem Anwenden
-nennt das Protokoll den letzten Schritt: `netplwiz` öffnen, Haken entfernen,
-Kennwort einmal bestätigen. Windows hinterlegt es dann verschlüsselt.
+Auf der Seite *Tweaks* richtet **„Ohne Kennwort anmelden"** die automatische
+Anmeldung vollständig ein: Benutzer und Kennwort eingeben, fertig – Windows
+startet danach direkt auf den Desktop.
 
-Daneben stehen: keine Kennwortabfrage nach dem Ruhezustand, Sperrbildschirm
-überspringen und die Anmeldung ohne Strg+Alt+Entf.
+Das Kennwort wird dabei über die LSA verschlüsselt hinterlegt, so wie es auch
+Microsofts eigenes Werkzeug *Autologon* macht. Der verbreitete Weg über
+`AutoAdminLogon` legt es stattdessen im **Klartext** in der Registry ab, wo es
+jeder Leseberechtigte abholen kann – diesen Weg geht Hoferium nicht. Das
+Kennwort wandert über die Standardeingabe, steht also auch nie in einer
+Befehlszeile, und wird nirgends protokolliert.
 
-Alle vier bedeuten, dass jeder mit Zugang zum Gerät hineinkommt – auf einem
-Notebook entsprechend abwägen.
+Daneben stehen als Tweaks: keine Kennwortabfrage nach dem Ruhezustand,
+Sperrbildschirm überspringen und Anmeldung ohne Strg+Alt+Entf.
+
+All das bedeutet, dass jeder mit Zugang zum Gerät hineinkommt – auf einem
+Notebook entsprechend abwägen. Rückgängig geht es über *Abschalten*.
+
+### Was bei den Tweaks geprüft wurde
+
+Jeder Eintrag wurde gegen die dokumentierte Windows-Realität abgeglichen. Was
+dabei auffiel, ist behoben: Schalter, die Microsoft inzwischen wirkungslos
+gemacht oder deren Funktion entfernt wurde, sind draußen; versionsabhängige
+werden auf Systemen, wo sie nichts bewirken, ausgegraut statt einen Erfolg
+vorzutäuschen. Beim Zurücksetzen wird der Wert nun gelöscht, statt einen
+Gegenwert zu schreiben – sonst bliebe die Einstellungen-App als „von Ihrer
+Organisation verwaltet" gesperrt. Jeder Tweak sagt außerdem, ob danach der
+Explorer, eine Neuanmeldung oder ein Neustart nötig ist.
 
 ## Was es bewusst nicht tut
 
@@ -270,6 +284,7 @@ nucleus/            Programmcode
   ui.py             Oberfläche, Animationen, Seiten
   backup.py         Datensicherung
   restore.py        Zurückholen
+  autologon.py      automatische Anmeldung (LSA, ohne Klartext-Kennwort)
   sysinfo.py        Systemübersicht der Startseite
   downloader.py     Software-Beschaffung
   uninstaller.py    Deinstallation und Debloat

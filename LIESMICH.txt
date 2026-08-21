@@ -11,7 +11,7 @@ WAS IST DAS?
     - Zurueckholen: spielt eine Sicherung auf Knopfdruck wieder ein
     - Software von OFFIZIELLEN Quellen holen (Download oder per winget)
     - Programme sauber deinstallieren - auf Wunsch samt Resten
-    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + 45 Tweaks
+    - Windows entbloaten (Auto oder Auswahl, Edge moeglich) + 43 Tweaks
     - Datenmuell entfernen (Temp, Update-Cache, Prefetch, Papierkorb ...)
     - bewaehrte externe Werkzeuge starten (WinUtil, O&O ShutUp10++,
       drei Sysinternals-Programme)
@@ -50,17 +50,27 @@ ZURUECKHOLEN AUF DEM NEUEN PC
 
 
 ANMELDUNG OHNE PASSWORT
-  Unter "Tweaks" gibt es die Kategorie "Anmeldung":
-    - Automatische Anmeldung freischalten: schaltet die Option in netplwiz
-      frei. Danach Windows-Taste+R, "netplwiz" eingeben, den Haken bei
-      "Benutzer muessen Benutzernamen und Kennwort eingeben" entfernen und
-      das Passwort einmal bestaetigen. Windows legt es verschluesselt ab -
-      Hoferium schreibt KEIN Passwort im Klartext in die Registry.
+  Auf der Seite "Tweaks" ganz oben: "OHNE KENNWORT ANMELDEN".
+  Dort Benutzer und Kennwort eingeben - fertig. Windows startet danach
+  direkt auf den Desktop.
+
+  Das Kennwort wird verschluesselt im System hinterlegt (so wie es auch
+  Microsofts eigenes Autologon-Werkzeug macht). Hoferium schreibt KEIN
+  Passwort im Klartext in die Registry und protokolliert es nirgends.
+  Rueckgaengig ueber "ABSCHALTEN".
+
+  Dazu gibt es in der Kategorie "Anmeldung" noch:
     - Kein Passwort nach dem Ruhezustand
     - Sperrbildschirm ueberspringen
     - Kein Strg+Alt+Entf zum Anmelden
-  Alle vier heissen: Wer an den Rechner kommt, kommt hinein. Auf einem
-  Notebook gut ueberlegen.
+
+  Alles zusammen heisst: Wer an den Rechner kommt, kommt hinein.
+  Auf einem Notebook gut ueberlegen.
+
+  Hinweis zu den Tweaks allgemein: Jeder Eintrag zeigt rechts an, ob
+  danach der Explorer neu starten, eine Neuanmeldung oder ein Neustart
+  noetig ist. Tweaks, die auf DIESEM Windows nichts bewirken (weil
+  Microsoft die Funktion entfernt hat), sind ausgegraut.
 
 
 WENN WINGET FEHLT
@@ -144,6 +154,7 @@ AUFBAU (fuer Neugierige)
         ui.py               Oberflaeche, Animationen, Seiten
         backup.py           Datensicherung
         restore.py          Zurueckholen
+        autologon.py        automatische Anmeldung (verschluesselt)
         sysinfo.py          Systemuebersicht der Startseite
         downloader.py       Software holen, winget einrichten
         uninstaller.py      Deinstallation und Debloat

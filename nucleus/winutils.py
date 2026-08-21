@@ -146,20 +146,27 @@ _PS_PREAMBLE = (
 )
 
 
-def powershell(script: str, timeout: int = 600) -> ProcResult:
+def powershell(script: str, timeout: int = 600,
+               stdin_text: str | None = None) -> ProcResult:
     """Fuehrt PowerShell-Code aus.
 
     Uebergabe per -EncodedCommand (Base64 ueber UTF-16LE): damit gibt es weder
     Quoting- noch Codepage-Probleme, auch nicht bei Umlauten oder Apostrophen
-    in eingesetzten Pfaden. Ueber stdin wuerde PowerShell 5.1 den Text in der
-    OEM-Codepage lesen und Sonderzeichen verstuemmeln.
+    in eingesetzten Pfaden.
+
+    `stdin_text` reicht Daten ueber die Standardeingabe nach - gedacht fuer
+    Werte, die NICHT in der Kommandozeile stehen duerfen (ein Kennwort waere
+    dort fuer andere Prozesse sichtbar). Im Skript mit
+    [Console]::In.ReadLine() abholen.
     """
     payload = (_PS_PREAMBLE + script).encode("utf-16-le")
     args = [
         "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-        "-NonInteractive", "-EncodedCommand", base64.b64encode(payload).decode("ascii"),
+        "-EncodedCommand", base64.b64encode(payload).decode("ascii"),
     ]
-    return run(args, timeout=timeout)
+    if stdin_text is None:
+        args.insert(4, "-NonInteractive")
+    return run(args, timeout=timeout, input_text=stdin_text)
 
 
 def ps_json(script: str, timeout: int = 600):

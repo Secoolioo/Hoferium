@@ -26,7 +26,8 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from . import backup as backup_mod
-from . import config, downloader, restore, sysinfo, tweaks, uninstaller, updater, winutils
+from . import autologon, config, downloader, restore, sysinfo, tweaks
+from . import uninstaller, updater, winutils
 from . import __version__
 from .config import (COLORS, FLAG, FLAG_BRIGHT, LEVEL_COLORS, LEVEL_MARKS,
                      NAV_ICONS, PAGE_COLORS, TAGLINES, backup_root, banner_lines,
@@ -520,6 +521,8 @@ class HoferiumApp(ctk.CTk):
                     self._schedule_restart(payload)
                 elif kind == "backups":
                     self._show_backups(payload)
+                elif kind == "autologon":
+                    self._refresh_autologon_state()
                 elif kind == "winget":
                     self._refresh_winget_state(payload)
                 elif kind == "catalog":
@@ -1608,6 +1611,30 @@ class HoferiumApp(ctk.CTk):
                                         text_color=COLORS["muted"])
         self.tweak_count.pack(side="left", padx=12)
 
+        # --- Automatische Anmeldung: eigener Bereich, weil dafuer das
+        #     Kennwort gebraucht wird und ein Haken nicht genuegt ---
+        auto = self._card(p, "tweaks", "OHNE KENNWORT ANMELDEN", "⚿")
+        self._hint(auto, "Richtet die automatische Anmeldung ein: Windows startet "
+                         "dann direkt auf den Desktop. Das Kennwort wird dafuer "
+                         "gebraucht und verschluesselt im System hinterlegt - "
+                         "Hoferium schreibt es NICHT in die Registry, wo es "
+                         "lesbar waere.")
+        self.autologon_label = ctk.CTkLabel(auto, text="Zustand wird geprueft ...",
+                                            font=(MONO_FONT, 12),
+                                            text_color=COLORS["dim"])
+        self.autologon_label.pack(anchor="w", padx=18, pady=(0, 6))
+        arow = ctk.CTkFrame(auto, fg_color="transparent")
+        arow.pack(fill="x", padx=16, pady=(0, 14))
+        self._btn(arow, "⚿  EINRICHTEN", self._ask_autologon,
+                  COLORS["cyan"]).pack(side="left", padx=(0, 8))
+        self.autologon_off_btn = ctk.CTkButton(
+            arow, text="ABSCHALTEN", width=150, height=44, font=_font(13, "bold"),
+            fg_color="transparent", border_width=2, border_color=COLORS["muted"],
+            text_color=COLORS["muted"], hover_color=COLORS["surface2"],
+            command=self._do_autologon_off)
+        self.autologon_off_btn.pack(side="left")
+        self.after(800, self._refresh_autologon_state)
+
         # Kategorien zweispaltig - bei ueber 40 Eintraegen bleibt die Seite
         # sonst endlos lang.
         cats: dict = {}
@@ -1631,7 +1658,8 @@ class HoferiumApp(ctk.CTk):
                          text_color=COLORS["dim"]).pack(side="right")
 
             for tw in tws:
-                var = tk.BooleanVar(value=tw.recommended)
+                passt = tw.passt_zu_system()
+                var = tk.BooleanVar(value=tw.recommended and passt)
                 var.trace_add("write", lambda *_a: self._update_tweak_count())
                 self.tweak_vars[tw.key] = (tw, var)
                 row = ctk.CTkFrame(box, fg_color="transparent")
@@ -1640,7 +1668,21 @@ class HoferiumApp(ctk.CTk):
                 ctk.CTkLabel(row, text=mark, width=16, font=(MONO_FONT, 11),
                              text_color=accent if tw.recommended else COLORS["dim"]
                              ).pack(side="left")
-                self._checkbox(row, tw.name, var, accent).pack(side="left")
+                cb = self._checkbox(row, tw.name, var, accent)
+                cb.pack(side="left")
+                if tw.restart != "nichts":
+                    ctk.CTkLabel(row, text={"explorer": "Explorer",
+                                            "abmelden": "Abmelden",
+                                            "neustart": "Neustart"}[tw.restart],
+                                 font=(MONO_FONT, 10),
+                                 text_color=COLORS["dim"]).pack(side="right")
+                if not passt:
+                    # Auf diesem Windows wirkungslos - lieber ausgrauen als so
+                    # tun, als haette man etwas eingestellt.
+                    cb.configure(state="disabled")
+                    ctk.CTkLabel(box, text="Auf diesem Windows ohne Wirkung.",
+                                 font=_font(11), text_color=COLORS["amber"],
+                                 justify="left").pack(anchor="w", padx=(46, 14))
                 ctk.CTkLabel(box, text=tw.description, font=_font(11),
                              text_color=COLORS["dim"], wraplength=340,
                              justify="left").pack(anchor="w", padx=(46, 14), pady=(0, 4))
@@ -1655,8 +1697,138 @@ class HoferiumApp(ctk.CTk):
         self._update_tweak_count()
         return p
 
+    # ---- Automatische Anmeldung ----
+    def _refresh_autologon_state(self):
+        st = autologon.status()
+        if st.fehler:
+            self.autologon_label.configure(text=f"Zustand unbekannt: {st.fehler}",
+                                           text_color=COLORS["dim"])
+            self.autologon_off_btn.configure(state="disabled")
+            return
+        if st.aktiv:
+            zusatz = ("  ACHTUNG: Kennwort liegt im Klartext in der Registry"
+                      if st.klartext_passwort else "")
+            self.autologon_label.configure(
+                text=f"Eingeschaltet fuer: {st.benutzer}{zusatz}",
+                text_color=COLORS["amber"] if st.klartext_passwort else COLORS["green"])
+            self.autologon_off_btn.configure(state="normal")
+        else:
+            self.autologon_label.configure(
+                text="Ausgeschaltet - beim Start wird nach dem Kennwort gefragt.",
+                text_color=COLORS["dim"])
+            self.autologon_off_btn.configure(state="disabled")
+
+    def _ask_autologon(self):
+        if not self.admin:
+            return messagebox.showwarning(
+                "Rechte fehlen",
+                "Dafuer werden Administrator-Rechte gebraucht. Bitte Hoferium "
+                "ueber hoferium.bat starten und die Nachfrage bestaetigen.")
+        benutzer, domaene = autologon.aktuelle_kennung()
+
+        win = ctk.CTkToplevel(self)
+        win.title("Ohne Kennwort anmelden")
+        win.configure(fg_color=COLORS["bg"])
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        ctk.CTkLabel(win, text="⚿  AUTOMATISCHE ANMELDUNG",
+                     font=(MONO_FONT, 16, "bold"), text_color=COLORS["cyan"]
+                     ).pack(anchor="w", padx=24, pady=(22, 4))
+        ctk.CTkLabel(
+            win, text=("Windows braucht das Kennwort, um sich selbst anmelden zu "
+                       "koennen. Es wird verschluesselt im System hinterlegt "
+                       "(LSA-Geheimnis), nicht in die Registry geschrieben, und "
+                       "nirgends protokolliert.\n\n"
+                       "Danach kommt jeder, der den Rechner einschaltet, direkt "
+                       "auf den Desktop."),
+            font=_font(12), text_color=COLORS["muted"], justify="left",
+            wraplength=520).pack(anchor="w", padx=24, pady=(0, 12))
+
+        felder = ctk.CTkFrame(win, fg_color=COLORS["surface"], corner_radius=10)
+        felder.pack(fill="x", padx=24)
+        user_var = tk.StringVar(value=benutzer)
+        dom_var = tk.StringVar(value=domaene)
+        pw_var = tk.StringVar()
+        for beschriftung, var, geheim in (("Benutzer", user_var, False),
+                                          ("Domaene/PC", dom_var, False),
+                                          ("Kennwort", pw_var, True)):
+            zeile = ctk.CTkFrame(felder, fg_color="transparent")
+            zeile.pack(fill="x", padx=14, pady=7)
+            ctk.CTkLabel(zeile, text=beschriftung, width=110, anchor="w",
+                         font=(MONO_FONT, 12), text_color=COLORS["muted"]
+                         ).pack(side="left")
+            eingabe = ctk.CTkEntry(zeile, textvariable=var, height=36,
+                                   font=(MONO_FONT, 13),
+                                   fg_color=COLORS["surface2"],
+                                   border_color=COLORS["border"],
+                                   text_color=COLORS["text"],
+                                   show="●" if geheim else "")
+            eingabe.pack(side="left", fill="x", expand=True)
+            if geheim:
+                eingabe.focus_set()
+
+        hinweis = ctk.CTkLabel(win, text="", font=_font(11),
+                               text_color=COLORS["amber"])
+        hinweis.pack(anchor="w", padx=24, pady=(8, 0))
+
+        def starten():
+            kennwort = pw_var.get()
+            if not kennwort:
+                hinweis.configure(text="Bitte das Kennwort eingeben.")
+                return
+            nutzer, dom = user_var.get().strip(), dom_var.get().strip()
+            pw_var.set("")                     # Feld sofort leeren
+            win.grab_release()
+            win.destroy()
+            self.run_task(
+                lambda rep: self._autologon_worker(rep, nutzer, dom, kennwort),
+                "Automatische Anmeldung einrichten")
+
+        knoepfe = ctk.CTkFrame(win, fg_color="transparent")
+        knoepfe.pack(fill="x", padx=24, pady=(14, 22))
+        self._btn(knoepfe, "EINRICHTEN", starten, COLORS["cyan"]).pack(
+            side="left", padx=(0, 8))
+        ctk.CTkButton(knoepfe, text="ABBRECHEN", height=44, font=_font(13, "bold"),
+                      fg_color="transparent", border_width=2,
+                      border_color=COLORS["surface3"], text_color=COLORS["muted"],
+                      hover_color=COLORS["surface2"],
+                      command=lambda: (win.grab_release(), win.destroy())
+                      ).pack(side="left")
+        win.bind("<Return>", lambda _e: starten())
+        win.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_y() + (self.winfo_height() - win.winfo_height()) // 3
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    def _autologon_worker(self, rep, benutzer, domaene, kennwort):
+        try:
+            ok = autologon.einrichten(benutzer, domaene, kennwort, rep)
+        finally:
+            kennwort = None          # Verweis im Arbeitsspeicher loesen
+        rep.done({"ok": 1 if ok else 0, "fail": 0 if ok else 1})
+        self._ui_queue.put(("autologon", None))
+
+    def _do_autologon_off(self):
+        if not messagebox.askyesno(
+                "Abschalten",
+                "Die automatische Anmeldung wird abgeschaltet. Beim naechsten "
+                "Start fragt Windows wieder nach dem Kennwort.\n\nFortfahren?"):
+            return
+
+        def worker(rep):
+            ok = autologon.abschalten(rep)
+            rep.done({"ok": 1 if ok else 0, "fail": 0 if ok else 1})
+            self._ui_queue.put(("autologon", None))
+
+        self.run_task(worker, "Automatische Anmeldung abschalten")
+
     def _select_tweaks(self, mode):
         for tw, var in self.tweak_vars.values():
+            if not tw.passt_zu_system():
+                var.set(False)          # wirkungslose gar nicht erst anhaken
+                continue
             var.set(tw.recommended if mode == "recommended" else (mode == "all"))
 
     def _update_tweak_count(self):
