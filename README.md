@@ -88,8 +88,17 @@ Alle eingreifenden Funktionen sind umkehrbar angelegt:
 
 ## Aufbau
 
+Auf dem Stick sind nur zwei Dinge sichtbar:
+
 ```
-hoferium.bat        Starter: Rechte, Einrichtung, Programmstart
+hoferium.bat        ← starten
+LIESMICH.txt        ← Kurzanleitung
+```
+
+Alles Übrige wird beim ersten Start ausgeblendet (`attrib +h`) und liegt
+darunter:
+
+```
 nucleus/            Quellcode
   ui.py             Oberfläche und Animationen
   backup.py         Datensicherung
@@ -101,10 +110,12 @@ nucleus/            Quellcode
   winutils.py       Windows-Hilfsfunktionen
   updater.py        Versionsprüfung
 apps.json           Programmliste (ohne Update pflegbar)
+VERSION             Versionsstand für die Update-Prüfung
+docs/               Bildmaterial für diese Seite
 ```
 
-Der Programmordner wird beim Start ausgeblendet, damit auf dem Stick nur der
-Starter und die Dokumentation sichtbar sind.
+Das Ausblenden betrifft nur die Anzeige im Explorer – die Dateien
+funktionieren unverändert weiter, und `git` arbeitet normal.
 
 ## Voraussetzungen
 

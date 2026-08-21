@@ -53,16 +53,29 @@ BEDIENUNG
 
 
 AUFBAU (fuer Neugierige)
-  hoferium.bat            Starter (Einrichtung + Programmstart)
-  nucleus/                Quellcode (Python, objektorientiert)
-    config.py          Pfade, Farben, ASCII-Banner
-    winutils.py        Windows-Helfer (Admin, Subprozesse, robocopy ...)
-    registry.py        installierte Programme / AppX auslesen
-    context.py         Reporter (Thread<->UI) + RunContext
-    backup.py          BackupJob (Datensicherung)
-    downloader.py      DownloadManager (Installer/winget)
-    uninstaller.py     Uninstaller (Deinstallation + Deep-Clean + Debloat)
-    tweaks.py          Tweaks, Cleaner, externe Tools
-    ui.py              Oberflaeche + Animationen
+  Sichtbar sind nur diese beiden Dateien:
+      hoferium.bat          <- hiermit starten
+      LIESMICH.txt          <- diese Anleitung
+
+  Alles Weitere wird beim ersten Start ausgeblendet und liegt darunter:
+      nucleus/              Quellcode (Python, objektorientiert)
+        config.py           Pfade, Farben, ASCII-Banner
+        winutils.py         Windows-Helfer (Admin, Subprozesse, robocopy ...)
+        registry.py         installierte Programme / AppX auslesen
+        context.py          Reporter (Thread<->UI) + RunContext
+        sysinfo.py          Systemuebersicht fuer die Startseite
+        backup.py           BackupJob (Datensicherung)
+        downloader.py       DownloadManager (Installer/winget)
+        uninstaller.py      Uninstaller (Deinstallation + Deep-Clean + Debloat)
+        tweaks.py           Tweaks, Cleaner, externe Werkzeuge
+        updater.py          Versionspruefung gegen GitHub
+        ui.py               Oberflaeche + Animationen
+      apps.json             Programmliste (laesst sich pflegen)
+      VERSION               Versionsstand
+      README.md, LICENSE, docs/, .git/
+
+  Ausgeblendet heisst nur "im Explorer unsichtbar" - es funktioniert alles
+  unveraendert weiter. Wieder einblenden (Eingabeaufforderung im Ordner):
+      attrib -h nucleus apps.json VERSION README.md LICENSE docs .git
 
 Systemvoraussetzung: Windows 10/11. Alles Weitere richtet hoferium.bat ein.

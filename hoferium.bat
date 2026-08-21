@@ -140,14 +140,25 @@ echo Einrichtung abgeschlossen.
 :run
 set "HOFERIUM_HOME=%HOFERIUM_DIR%"
 cd /d "%HOFERIUM_DIR%"
-REM  Programmcode ausblenden - sichtbar bleiben nur Starter und Doku.
-attrib +h "%HOFERIUM_DIR%nucleus" >nul 2>&1
+call :hideclutter
 if exist "%VPYW%" (
     start "" /D "%HOFERIUM_DIR%" "%VPYW%" -m nucleus
 ) else (
     "%VPY%" -m nucleus
 )
 exit /b
+
+REM ------------------------------------------------------------
+REM  Blendet alles aus, was zum Programm gehoert. Sichtbar bleiben
+REM  nur hoferium.bat und LIESMICH.txt - die Dateien funktionieren
+REM  weiter, das Attribut betrifft nur die Anzeige im Explorer.
+REM ------------------------------------------------------------
+:hideclutter
+pushd "%HOFERIUM_DIR%"
+if errorlevel 1 goto :eof
+for %%I in (nucleus docs .git .github .gitignore .gitattributes README.md LICENSE VERSION apps.json _vorherige_version) do if exist "%%I" attrib +h "%%I" >nul 2>&1
+popd
+goto :eof
 
 REM ------------------------------------------------------------
 REM  Sucht einen Basis-Python-Interpreter und setzt BASEPY.
