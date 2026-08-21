@@ -26,7 +26,7 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 from . import backup as backup_mod
-from . import config, downloader, sysinfo, tweaks, uninstaller, updater, winutils
+from . import config, downloader, restore, sysinfo, tweaks, uninstaller, updater, winutils
 from . import __version__
 from .config import (COLORS, FLAG, FLAG_BRIGHT, LEVEL_COLORS, LEVEL_MARKS,
                      NAV_ICONS, PAGE_COLORS, TAGLINES, banner_lines, local_dir,
@@ -471,6 +471,8 @@ class HoferiumApp(ctk.CTk):
                     self._show_clean_sizes(payload)
                 elif kind == "update":
                     self._apply_update_info(payload)
+                elif kind == "backups":
+                    self._show_backups(payload)
                 elif kind == "catalog":
                     apps, source = payload
                     self._render_catalog(apps, source)
@@ -560,6 +562,7 @@ class HoferiumApp(ctk.CTk):
         nav = [
             ("dashboard", "Start"),
             ("backup", "Datensicherung"),
+            ("restore", "Zurueckholen"),
             ("software", "Software holen"),
             ("uninstall", "Deinstallieren"),
             ("debloat", "Debloat"),
@@ -763,6 +766,7 @@ class HoferiumApp(ctk.CTk):
         self._page_meta = {
             "dashboard": ("START", "Alles fuer den PC-Wechsel an einem Ort."),
             "backup":    ("DATENSICHERUNG", "Browser, Windows-Key, WLAN, Programme, Treiber ..."),
+            "restore":   ("ZURUECKHOLEN", "Eine Sicherung auf diesen PC zurueckspielen."),
             "software":  ("SOFTWARE HOLEN", "Offizielle Installer speichern oder per winget setzen."),
             "uninstall": ("DEINSTALLIEREN", "Programme sauber entfernen - inklusive Reste."),
             "debloat":   ("DEBLOAT", "Windows-Bloatware entfernen - automatisch oder per Auswahl."),
@@ -774,6 +778,7 @@ class HoferiumApp(ctk.CTk):
         }
         self._pages["dashboard"] = self._build_dashboard()
         self._pages["backup"] = self._build_backup()
+        self._pages["restore"] = self._build_restore()
         self._pages["software"] = self._build_software()
         self._pages["uninstall"] = self._build_uninstall()
         self._pages["debloat"] = self._build_debloat()
@@ -1030,6 +1035,198 @@ class HoferiumApp(ctk.CTk):
             self._set_status(f"{name}: Passwortseite geoeffnet", COLORS["green"])
         except Exception as e:
             self._log_line(f"{name} liess sich nicht oeffnen: {e}", "err")
+
+    # Was sich zurueckholen laesst: Schluessel, Beschriftung, Standard, Hinweis
+    RESTORE_ITEMS = [
+        ("wifi", "WLAN-Netze samt Passwoertern", True, "vollautomatisch"),
+        ("firefox", "Firefox-Profil", True, "Passwoerter, Lesezeichen, Verlauf"),
+        ("thunderbird", "Thunderbird-Profil", True, "Konten und Mails"),
+        ("sticky", "Kurznotizen", True, ""),
+        ("outlook", "Outlook-Datendateien", True, "danach in Outlook oeffnen"),
+        ("bookmarks", "Lesezeichen der uebrigen Browser", True,
+         "oeffnet den Ordner - Import im Browser mit zwei Klicks"),
+        ("hosts", "hosts-Datei", False, "nur bei eigenen Eintraegen noetig"),
+        ("userfiles", "Eigene Dateien", False, "kann sehr gross sein"),
+        ("programs", "Programme nachinstallieren", False,
+         "laedt ueber winget aus dem Netz - dauert lange"),
+        ("drivers", "Treiber einspielen", False, "nur wenn Geraete fehlen"),
+    ]
+
+    def _build_restore(self):
+        p = self._page("restore")
+        head = self._card(p, "restore", "SICHERUNG ZURUECKHOLEN", "▲")
+        self._hint(head, "Hoferium sucht die Sicherungen neben dem Programm. Die "
+                         "zu diesem Rechner passende ist vorausgewaehlt. Vor dem "
+                         "Ueberschreiben wird der jetzige Zustand weggesichert - "
+                         "der Import bleibt damit umkehrbar.")
+        row = ctk.CTkFrame(head, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(0, 6))
+        ctk.CTkButton(row, text="SICHERUNGEN SUCHEN", width=200, height=36,
+                      font=_font(12, "bold"), fg_color="transparent", border_width=2,
+                      border_color=COLORS["lime"], text_color=COLORS["lime"],
+                      hover_color=COLORS["surface2"],
+                      command=self._scan_backups).pack(side="left")
+        ctk.CTkButton(row, text="ORDNER WAEHLEN ...", width=180, height=36,
+                      font=_font(12, "bold"), fg_color="transparent", border_width=2,
+                      border_color=COLORS["surface3"], text_color=COLORS["muted"],
+                      hover_color=COLORS["surface2"],
+                      command=self._pick_backup_folder).pack(side="left", padx=8)
+        self.restore_status = ctk.CTkLabel(head, text="Noch nicht gesucht.",
+                                           font=(MONO_FONT, 12),
+                                           text_color=COLORS["muted"])
+        self.restore_status.pack(anchor="w", padx=18, pady=(2, 12))
+
+        self.restore_list = ctk.CTkFrame(p, fg_color="transparent")
+        self.restore_list.pack(fill="x", padx=6, pady=2)
+
+        sel = self._card(p, "restore", "WAS SOLL ZURUECK?", "☑")
+        self.restore_vars = {}
+        self.restore_rows = {}
+        grid = ctk.CTkFrame(sel, fg_color="transparent")
+        grid.pack(fill="x", padx=14, pady=(2, 14))
+        for key, label, default, note in self.RESTORE_ITEMS:
+            var = tk.BooleanVar(value=default)
+            self.restore_vars[key] = var
+            line = ctk.CTkFrame(grid, fg_color="transparent")
+            line.pack(fill="x", pady=2)
+            cb = self._checkbox(line, label, var, COLORS["lime"])
+            cb.pack(side="left")
+            state = ctk.CTkLabel(line, text="", font=(MONO_FONT, 11),
+                                 text_color=COLORS["dim"])
+            state.pack(side="right")
+            if note:
+                ctk.CTkLabel(line, text=note, font=_font(11),
+                             text_color=COLORS["dim"]).pack(side="left", padx=10)
+            self.restore_rows[key] = (cb, state)
+
+        act = ctk.CTkFrame(p, fg_color="transparent")
+        act.pack(fill="x", padx=6, pady=8)
+        self._btn(act, "▲  JETZT ZURUECKHOLEN", self._do_restore,
+                  COLORS["lime"]).pack(side="left", padx=6)
+        self.after(600, self._scan_backups)
+        return p
+
+    def _scan_backups(self):
+        self.restore_status.configure(text="Suche ...")
+
+        def worker():
+            try:
+                found = restore.find_backups(stick_dir())
+            except Exception as e:
+                found = e
+            self._ui_queue.put(("backups", found))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _pick_backup_folder(self):
+        d = filedialog.askdirectory(title="Ordner mit den Sicherungen waehlen",
+                                    initialdir=str(stick_dir()))
+        if not d:
+            return
+        self.restore_status.configure(text="Suche ...")
+
+        def worker():
+            try:
+                found = restore.find_backups(d)
+            except Exception as e:
+                found = e
+            self._ui_queue.put(("backups", found))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_backups(self, found):
+        for w in self.restore_list.winfo_children():
+            w.destroy()
+        self._backups = []
+        if isinstance(found, Exception):
+            self.restore_status.configure(text=f"Suche fehlgeschlagen: {found}",
+                                          text_color=COLORS["amber"])
+            return
+        self._backups = found
+        if not found:
+            self.restore_status.configure(
+                text="Keine Sicherung gefunden. Liegt der Stick nicht hier, "
+                     "oben 'ORDNER WAEHLEN' benutzen.",
+                text_color=COLORS["amber"])
+            self._update_restore_marks(None)
+            return
+
+        eigen = sum(1 for b in found if b.is_this_pc)
+        self.restore_status.configure(
+            text=f"{len(found)} Sicherung(en) gefunden, davon {eigen} von diesem PC.",
+            text_color=COLORS["muted"])
+        self.backup_choice = tk.IntVar(value=0)
+        for i, b in enumerate(found):
+            card = NeonCard(self.restore_list,
+                            COLORS["lime"] if b.is_this_pc else COLORS["surface3"])
+            card.pack(fill="x", padx=0, pady=5)
+            self._page_cards["restore"].append(card)
+            top = ctk.CTkFrame(card, fg_color="transparent")
+            top.pack(fill="x", padx=14, pady=(11, 2))
+            ctk.CTkRadioButton(
+                top, text=f"{b.computer}", variable=self.backup_choice, value=i,
+                font=(MONO_FONT, 14, "bold"), fg_color=COLORS["lime"],
+                hover_color=COLORS["lime"], border_color=COLORS["border"],
+                text_color=COLORS["text"],
+                command=lambda idx=i: self._update_restore_marks(found[idx])
+            ).pack(side="left")
+            tag = "dieser PC" if b.is_this_pc else "anderer PC"
+            ctk.CTkLabel(top, text=tag, font=(MONO_FONT, 11),
+                         text_color=COLORS["lime"] if b.is_this_pc else COLORS["dim"]
+                         ).pack(side="left", padx=10)
+            ctk.CTkLabel(top, text=f"{b.when}   {b.size_mb} MB",
+                         font=(MONO_FONT, 12), text_color=COLORS["muted"]).pack(side="right")
+            inhalt = [lbl for key, lbl, _d, _n in self.RESTORE_ITEMS
+                      if b.available.get(key)]
+            ctk.CTkLabel(card, text="enthaelt: " + (", ".join(inhalt) if inhalt else "nichts Verwertbares"),
+                         font=_font(11), text_color=COLORS["dim"],
+                         wraplength=self.WRAP, justify="left").pack(
+                anchor="w", padx=(38, 14), pady=(0, 10))
+        self._update_restore_marks(found[0])
+
+    def _update_restore_marks(self, bset):
+        """Zeigt je Eintrag, ob er in der gewaehlten Sicherung vorhanden ist,
+        und waehlt Fehlendes ab."""
+        for key, (cb, state) in self.restore_rows.items():
+            has = bool(bset and bset.available.get(key))
+            state.configure(text="vorhanden" if has else "nicht enthalten",
+                            text_color=COLORS["lime"] if has else COLORS["dim"])
+            cb.configure(state="normal" if has else "disabled")
+            if not has:
+                self.restore_vars[key].set(False)
+
+    def _do_restore(self):
+        chosen = getattr(self, "_backups", [])
+        idx = self.backup_choice.get() if hasattr(self, "backup_choice") else -1
+        if not chosen or idx < 0 or idx >= len(chosen):
+            return messagebox.showinfo("Hoferium", "Bitte zuerst eine Sicherung waehlen.")
+        bset = chosen[idx]
+        opts = {k: v.get() for k, v in self.restore_vars.items()}
+        gewaehlt = [lbl for key, lbl, _d, _n in self.RESTORE_ITEMS if opts.get(key)]
+        if not gewaehlt:
+            return self._need_selection()
+
+        warn = ""
+        if not bset.is_this_pc:
+            warn = (f"\n\nACHTUNG: Die Sicherung stammt von '{bset.computer}', "
+                    f"dieser Rechner heisst "
+                    f"'{os.environ.get('COMPUTERNAME', '?')}'.")
+        liste = "\n".join(f"  - {g}" for g in gewaehlt)
+        if not messagebox.askyesno(
+                "Zurueckholen bestaetigen",
+                f"Aus {bset.path.name} wird zurueckgespielt:\n\n{liste}\n\n"
+                f"Vorhandene Profile werden dabei ersetzt. Der jetzige Zustand "
+                f"wird vorher gesichert.{warn}\n\nFortfahren?"):
+            return
+
+        backup_dir = local_dir() / "backups"
+        options = restore.RestoreOptions(**opts)
+
+        def worker(rep):
+            ctx = RunContext(backup_dir, rep, admin=self.admin)
+            restore.RestoreJob(ctx, bset).run(options)
+
+        self.run_task(worker, f"Zurueckholen aus {bset.path.name}")
 
     def _build_software(self):
         p = self._page("software")

@@ -26,6 +26,24 @@ SO BENUTZT DU ES
   4. Ab dann startet direkt das Programm mit der Oberflaeche.
 
 
+ZURUECKHOLEN AUF DEM NEUEN PC
+  Nach der Neuinstallation Hoferium vom selben Stick starten und links auf
+  "Zurueckholen" gehen. Das Programm findet die Sicherungen von allein und
+  waehlt die zu diesem Rechner passende vor (Abgleich ueber den PC-Namen).
+
+  Auf Knopfdruck zurueck kommen:
+    - WLAN-Netze samt Passwoertern
+    - Firefox-Profil (damit auch dessen Passwoerter und Lesezeichen)
+    - Thunderbird-Profil, Kurznotizen, Outlook-Dateien
+    - Eigene Dateien, Treiber, Programme (ueber winget)
+
+  Nur die Lesezeichen von Chrome/Edge/Brave brauchen zwei Klicks von Hand -
+  dafuer gibt es keine Schnittstelle. Hoferium oeffnet den passenden Ordner.
+
+  Vor dem Ueberschreiben wird der jetzige Stand weggesichert nach
+  %LOCALAPPDATA%\Hoferium\backups\vor_import_<Zeit>
+
+
 WO LANDEN DIE DATEN?
   - Sicherungen: im Ordner "Sicherung_<PC>_<Datum>" NEBEN der hoferium.bat
     (also auf dem Stick). Das Ziel laesst sich im Programm aendern.

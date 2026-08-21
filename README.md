@@ -30,6 +30,7 @@ schreibt alle Ergebnisse direkt daneben.
 | Bereich | Was es tut |
 | --- | --- |
 | **Datensicherung** | Browser-Profile (Chrome, Edge, Firefox, Brave, Opera, Vivaldi und weitere), Lesezeichen als importierbare HTML, WLAN-Profile samt Passwörtern, Windows-Schlüssel, Programmliste, Treiber, Sticky Notes, Thunderbird- und Outlook-Daten |
+| **Zurückholen** | Spielt eine Sicherung auf Knopfdruck zurück: WLAN-Netze, Firefox- und Thunderbird-Profil, Kurznotizen, Outlook-Dateien, eigene Dateien, Treiber, Programme via `winget import` |
 | **Software** | Installer von den offiziellen Quellen laden oder direkt per `winget` einspielen – die Programmliste wird aus diesem Repository aufgefrischt |
 | **Deinstallieren** | Programme sauber entfernen, auf Wunsch samt Datei- und Registry-Resten |
 | **Debloat** | Vorinstallierte Windows-Apps und Herstellerzugaben entfernen – automatisch oder gezielt ausgewählt |
@@ -54,6 +55,28 @@ beschreibt, wie alles auf dem neuen System zurückkommt.
   <img src="docs/screenshot-tweaks.png" alt="Tweaks nach Kategorien geordnet" width="49%">
   <img src="docs/screenshot-cleaner.png" alt="Cleaner mit Größenaufstellung" width="49%">
 </div>
+
+## Zurückholen auf dem neuen System
+
+Nach der Neuinstallation genügt es, Hoferium vom selben Stick zu starten und
+auf *Zurückholen* zu gehen. Das Programm sucht die Sicherungsordner selbst,
+erkennt am Rechnernamen die zu diesem Gerät passende und wählt sie vor.
+
+<div align="center">
+  <img src="docs/screenshot-restore.png" alt="Gefundene Sicherungen mit Auswahl der Bestandteile" width="100%">
+</div>
+
+Vollautomatisch laufen WLAN-Netze (`netsh`), das Firefox- und
+Thunderbird-Profil, Kurznotizen, Outlook-Dateien, eigene Dateien, Treiber
+(`pnputil`) und das Nachinstallieren der Programme (`winget import`). Was in
+der gewählten Sicherung fehlt, wird ausgegraut statt es erfolglos zu
+versuchen.
+
+Nur die Lesezeichen der Chromium-Browser brauchen zwei Klicks von Hand – dafür
+gibt es keine Schnittstelle. Hoferium öffnet dazu den passenden Ordner.
+
+Bevor ein vorhandenes Profil überschrieben wird, sichert das Programm den
+aktuellen Stand nach `%LOCALAPPDATA%\Hoferium\backups\vor_import_<Zeit>`.
 
 ## Zu den Browser-Passwörtern
 

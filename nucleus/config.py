@@ -92,6 +92,7 @@ COLORS = {
 PAGE_COLORS = {
     "dashboard": COLORS["cyan"],
     "backup":    COLORS["green"],
+    "restore":   COLORS["lime"],
     "software":  COLORS["blue"],
     "uninstall": COLORS["red"],
     "debloat":   COLORS["orange"],
@@ -183,6 +184,7 @@ def banner_lines() -> list:
 NAV_ICONS = {
     "dashboard": "◈",
     "backup":    "▼",
+    "restore":   "▲",
     "software":  "↧",
     "uninstall": "✕",
     "debloat":   "☢",
