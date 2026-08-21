@@ -135,6 +135,19 @@ def _detect_parts(folder: Path) -> dict:
     }
 
 
+def _env_dir(var: str, *parts) -> Path:
+    """Zielpfad aus einer Umgebungsvariablen bauen.
+
+    Fehlt die Variable, entstuende sonst ein RELATIVER Pfad - dann landete
+    die Wiederherstellung im Arbeitsverzeichnis (also auf dem Stick) statt
+    im Benutzerprofil. Lieber sauber abbrechen.
+    """
+    base = os.environ.get(var, "")
+    if not base or not os.path.isabs(base):
+        raise RuntimeError(f"%{var}% ist nicht gesetzt - Ziel nicht bestimmbar")
+    return Path(base).joinpath(*parts)
+
+
 @dataclass
 class RestoreOptions:
     wifi: bool = True
@@ -241,7 +254,7 @@ class RestoreJob:
             raise RuntimeError("kein Profil uebernommen")
 
     def _firefox(self) -> None:
-        target = Path(os.environ.get("APPDATA", "")) / "Mozilla" / "Firefox"
+        target = _env_dir("APPDATA", "Mozilla", "Firefox")
         self._preserve(target, "Firefox")
         src = self.src / "05_Browser" / "Firefox"
         target.mkdir(parents=True, exist_ok=True)
@@ -251,15 +264,16 @@ class RestoreJob:
         self.r.log("Passwoerter, Lesezeichen und Verlauf sind wieder da.")
 
     def _thunderbird(self) -> None:
-        target = Path(os.environ.get("APPDATA", "")) / "Thunderbird"
+        target = _env_dir("APPDATA", "Thunderbird")
         self._preserve(target, "Thunderbird")
         res = robocopy(self.src / "10_EMail" / "Thunderbird", target)
         if not res.ok:
             raise RuntimeError(f"Kopie unvollstaendig (Code {res.rc})")
 
     def _sticky(self) -> None:
-        target = (Path(os.environ.get("LOCALAPPDATA", "")) / "Packages" /
-                  "Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe" / "LocalState")
+        target = _env_dir("LOCALAPPDATA", "Packages",
+                          "Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe",
+                          "LocalState")
         if not target.parent.exists():
             raise RuntimeError("Kurznotizen-App ist auf diesem PC nicht eingerichtet")
         self._preserve(target, "StickyNotes")
@@ -269,7 +283,7 @@ class RestoreJob:
             raise RuntimeError(f"Kopie unvollstaendig (Code {res.rc})")
 
     def _outlook(self) -> None:
-        target = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "Outlook"
+        target = _env_dir("LOCALAPPDATA", "Microsoft", "Outlook")
         target.mkdir(parents=True, exist_ok=True)
         n = 0
         for pst in (self.src / "10_EMail" / "Outlook_PST").glob("*.pst"):
@@ -286,7 +300,7 @@ class RestoreJob:
     def _hosts(self) -> None:
         if not is_admin():
             raise RuntimeError("Administrator-Rechte noetig")
-        target = Path(os.environ.get("windir", r"C:\Windows")) / "System32" / "drivers" / "etc"
+        target = _env_dir("windir", "System32", "drivers", "etc")
         self._preserve(target / "hosts", "hosts")
         res = copy_path(self.src / "08_Sonstiges" / "hosts", target)
         if not res.ok:
@@ -294,7 +308,7 @@ class RestoreJob:
 
     def _userfiles(self) -> None:
         base = self.src / "06_Eigene-Dateien"
-        up = Path(os.environ.get("USERPROFILE", ""))
+        up = _env_dir("USERPROFILE")
         copied = 0
         for folder in base.iterdir():
             if not folder.is_dir():
