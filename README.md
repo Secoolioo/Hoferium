@@ -4,7 +4,7 @@
 
 **Windows-PCs neu aufsetzen, ohne vorher stundenlang Daten zusammenzusuchen.**
 
-[![Version](https://img.shields.io/badge/Version-1.6.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
+[![Version](https://img.shields.io/badge/Version-1.6.1-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-dd0000?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Python](https://img.shields.io/badge/Python-wird%20mitinstalliert-1e1e26?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Lizenz](https://img.shields.io/badge/Lizenz-MIT-1e1e26?style=flat-square&labelColor=1e1e26)](LICENSE)
@@ -284,7 +284,22 @@ apps.json           Softwareliste – wird hier im Repository gepflegt
 requirements.txt    benötigte Python-Pakete
 VERSION             Versionsstand für die Update-Prüfung
 docs/               Bildmaterial für diese Seite
+tools/check_docs.py prüft, ob diese Seite noch zum Code passt
 ```
+
+### Mitarbeiten
+
+Wer etwas ändert, sollte vorher
+
+```bash
+python3 tools/check_docs.py
+```
+
+laufen lassen. Das Skript vergleicht Doku und Code – Versionsnummern an
+allen drei Stellen, die genannten Anzahlen (Tweaks, Werkzeuge), die
+Modulliste, eingebundene Bilder, die Update-Schutzliste und die
+Zeilenenden der Windows-Dateien. Es meldet jede Abweichung und endet mit
+Rückgabewert 1, solange etwas nicht stimmt.
 
 Das Ausblenden betrifft nur die Anzeige im Explorer. Die Dateien funktionieren
 unverändert, und `git` arbeitet normal weiter. Wieder einblenden:

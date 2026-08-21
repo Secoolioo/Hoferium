@@ -202,7 +202,7 @@ REM ------------------------------------------------------------
 :hideclutter
 pushd "%HOFERIUM_DIR%"
 if errorlevel 1 goto :eof
-for %%I in (nucleus docs .git .github .gitignore .gitattributes README.md LICENSE VERSION apps.json requirements.txt update.json _vorherige_version) do if exist "%%I" attrib +h "%%I" >nul 2>&1
+for %%I in (nucleus docs tools .git .github .gitignore .gitattributes README.md LICENSE VERSION apps.json requirements.txt update.json _vorherige_version) do if exist "%%I" attrib +h "%%I" >nul 2>&1
 popd
 goto :eof
 
