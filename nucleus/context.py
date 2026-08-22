@@ -18,20 +18,42 @@ class Reporter:
         kind == 'done'     -> a=summary(dict|None), b=None
     """
 
+    # Ab dieser Groesse wird das Protokoll einmal zur Seite gelegt (.1) und neu
+    # begonnen. Ein Stick laeuft ueber Jahre auf vielen Rechnern - ohne diese
+    # Grenze waechst die Datei unbegrenzt.
+    MAX_LOG_BYTES = 2 * 1024 * 1024
+
     def __init__(self, logfile: Path | None = None):
         self.q: "queue.Queue" = queue.Queue()
         self._cancel = threading.Event()
         self._done = threading.Event()
-        self._logfile = Path(logfile) if logfile else None
+        self._logfiles: list[Path] = []
+        # Zaehler statt blosser Anzeige: Der Aufrufer kann damit entscheiden, ob
+        # ein Lauf wirklich sauber war. Ohne das galt jeder Schritt, der nicht
+        # abgestuerzt ist, als erfolgreich - auch wenn er nur gewarnt hat.
+        self.warnings = 0
+        self.errors = 0
+        if logfile:
+            self.add_logfile(logfile)
+
+    def add_logfile(self, path) -> None:
+        """Haengt ein weiteres Protokollziel an. Der Sicherungsordner bekommt so
+        eine eigene Kopie, die eine Neuinstallation ueberlebt - das Protokoll
+        unter %LOCALAPPDATA% wird dabei geloescht."""
+        p = Path(path)
+        if p not in self._logfiles:
+            self._logfiles.append(p)
 
     # ---- vom Worker aufgerufen ----
     def log(self, msg, level: str = "info") -> None:
         line = str(msg)
         self.q.put(("log", level, line))
-        if self._logfile is not None:
+        ts = datetime.now().strftime("%H:%M:%S")
+        for f in self._logfiles:
             try:
-                ts = datetime.now().strftime("%H:%M:%S")
-                with self._logfile.open("a", encoding="utf-8") as fh:
+                if f.exists() and f.stat().st_size > self.MAX_LOG_BYTES:
+                    f.replace(f.with_suffix(f.suffix + ".1"))
+                with f.open("a", encoding="utf-8") as fh:
                     fh.write(f"[{ts}] [{level.upper()}] {line}\n")
             except Exception:
                 pass
@@ -43,9 +65,11 @@ class Reporter:
         self.log(msg, "ok")
 
     def warn(self, msg) -> None:
+        self.warnings += 1
         self.log(msg, "warn")
 
     def err(self, msg) -> None:
+        self.errors += 1
         self.log(msg, "err")
 
     def progress(self, frac: float, text: str | None = None) -> None:

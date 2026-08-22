@@ -122,14 +122,34 @@ def kill_all() -> int:
     return len(procs)
 
 
+def _oem_codepage() -> str:
+    """Die tatsaechliche OEM-Codepage dieses Windows. Fest cp850 anzunehmen ist
+    falsch: englische Systeme liefern cp437, mitteleuropaeische cp852."""
+    if IS_WINDOWS:
+        try:
+            import ctypes
+            cp = int(ctypes.windll.kernel32.GetOEMCP())
+            if cp:
+                return f"cp{cp}"
+        except Exception:
+            pass
+    return "cp850"
+
+
 def _decode(raw) -> str:
     """Dekodiert Programmausgaben tolerant: erst UTF-8, sonst die
-    Windows-Konsolen-Codepage (deutsches Windows liefert oft cp850)."""
+    OEM-Codepage dieses Systems.
+
+    Ein dritter Versuch mit cp1252 waere toter Code - die OEM-Codepages belegen
+    alle 256 Bytewerte und werfen deshalb nie UnicodeDecodeError. Ein Werkzeug,
+    das ANSI statt OEM ausgibt, laesst sich auf Byte-Ebene nicht davon
+    unterscheiden; das nehmen wir bewusst in Kauf.
+    """
     if not raw:
         return ""
     if isinstance(raw, str):
         return raw
-    for enc in ("utf-8", "cp850", "cp1252"):
+    for enc in ("utf-8", _oem_codepage()):
         try:
             return raw.decode(enc)
         except (UnicodeDecodeError, LookupError):
@@ -140,9 +160,21 @@ def _decode(raw) -> str:
 # Ohne diesen Vorspann gibt Windows PowerShell auf einem deutschen System in
 # der OEM-Codepage (z. B. cp850) aus - wir lesen aber UTF-8. Ergebnis waeren
 # zerstoerte Umlaute in WLAN-Namen, Programmnamen und System-Infos.
+#
+# Read-HoferiumStdin holt einen ueber die Standardeingabe gereichten Wert ab.
+# Die Gegenrichtung ist die heikle: [Console]::InputEncoding laesst sich bei
+# umgeleiteter Eingabe nicht zuverlaessig setzen, PowerShell 5.1 dekodiert dann
+# mit der Eingabe-Codepage. Deshalb wandert der Wert als Base64 ueber die
+# Leitung - darin stehen nur ASCII-Zeichen, die jede Codepage gleich abbildet.
 _PS_PREAMBLE = (
     "$OutputEncoding = [Console]::OutputEncoding = "
     "[System.Text.Encoding]::UTF8\n"
+    "function Read-HoferiumStdin {\n"
+    "  $b64 = [Console]::In.ReadLine()\n"
+    "  if ([string]::IsNullOrEmpty($b64)) { return '' }\n"
+    "  return [Text.Encoding]::UTF8.GetString("
+    "[Convert]::FromBase64String($b64.Trim()))\n"
+    "}\n"
 )
 
 
@@ -154,10 +186,10 @@ def powershell(script: str, timeout: int = 600,
     Quoting- noch Codepage-Probleme, auch nicht bei Umlauten oder Apostrophen
     in eingesetzten Pfaden.
 
-    `stdin_text` reicht Daten ueber die Standardeingabe nach - gedacht fuer
-    Werte, die NICHT in der Kommandozeile stehen duerfen (ein Kennwort waere
-    dort fuer andere Prozesse sichtbar). Im Skript mit
-    [Console]::In.ReadLine() abholen.
+    `stdin_text` reicht einen Wert ueber die Standardeingabe nach - gedacht fuer
+    Daten, die NICHT in der Kommandozeile stehen duerfen (ein Kennwort waere
+    dort fuer andere Prozesse sichtbar). Der Wert wird Base64-kodiert
+    uebertragen; im Skript mit Read-HoferiumStdin abholen.
     """
     payload = (_PS_PREAMBLE + script).encode("utf-16-le")
     args = [
@@ -166,7 +198,11 @@ def powershell(script: str, timeout: int = 600,
     ]
     if stdin_text is None:
         args.insert(4, "-NonInteractive")
-    return run(args, timeout=timeout, input_text=stdin_text)
+        wire = None
+    else:
+        wire = base64.b64encode(
+            stdin_text.rstrip("\r\n").encode("utf-8")).decode("ascii") + "\n"
+    return run(args, timeout=timeout, input_text=wire)
 
 
 def ps_json(script: str, timeout: int = 600):

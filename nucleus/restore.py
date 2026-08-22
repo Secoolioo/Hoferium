@@ -20,7 +20,10 @@ from .config import BACKUP_ROOT_NAME
 from .context import RunContext
 from .winutils import IS_WINDOWS, copy_path, is_admin, powershell, robocopy, run
 
-FOLDER_RE = re.compile(r"^Sicherung_(?P<pc>.+)_(?P<stamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2})$")
+# Die Sekunden sind optional: Sicherungen aus Fassungen vor 1.8.0 haben sie
+# nicht und muessen weiterhin gefunden werden.
+FOLDER_RE = re.compile(
+    r"^Sicherung_(?P<pc>.+)_(?P<stamp>\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?)$")
 
 # Unterordner der Sicherung -> was daraus wiederhergestellt werden kann
 PARTS = {
@@ -51,10 +54,12 @@ class BackupSet:
 
     @property
     def when(self) -> str:
-        try:
-            return datetime.strptime(self.stamp, "%Y-%m-%d_%H-%M").strftime("%d.%m.%Y %H:%M")
-        except ValueError:
-            return self.stamp
+        for muster in ("%Y-%m-%d_%H-%M-%S", "%Y-%m-%d_%H-%M"):
+            try:
+                return datetime.strptime(self.stamp, muster).strftime("%d.%m.%Y %H:%M")
+            except ValueError:
+                continue
+        return self.stamp
 
     @property
     def size_mb(self) -> float:

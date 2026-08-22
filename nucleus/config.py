@@ -43,7 +43,11 @@ def local_dir() -> Path:
 
 
 def timestamp() -> str:
-    return datetime.now().strftime("%Y-%m-%d_%H-%M")
+    """Sekundengenau, damit zwei Durchgaenge kurz hintereinander nicht in
+    denselben Ordner schreiben und sich die Zusammenfassung ueberbuegeln.
+    restore.FOLDER_RE liest die Sekunden optional - aeltere Sicherungen ohne
+    sie werden weiterhin gefunden."""
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def computer_name() -> str:
