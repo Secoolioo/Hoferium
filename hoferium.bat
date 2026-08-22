@@ -22,16 +22,36 @@ REM  Der angemeldete Benutzer wird mitgegeben: Bestaetigt jemand den UAC-Dialog
 REM  mit einem ANDEREN Konto, laeuft alles unter dessen Profil - dann wuerde
 REM  das falsche (leere) Profil gesichert. Das Programm warnt in dem Fall.
 if not "%~1"=="" set "HOFERIUM_CALLER=%~1"
-net session >nul 2>&1
+REM  Der Marker wird bewusst zuerst geleert: als Umgebungsvariable wuerde er
+REM  sonst aus einem uebergeordneten Prozess geerbt und der Start abgebrochen.
+set "HOFERIUM_ELEVATED="
+if /i "%~2"=="--elevated" set "HOFERIUM_ELEVATED=1"
+REM  fltmc statt 'net session': 'net session' meldet auch dann einen Fehler,
+REM  wenn nur der Dienst "Server" abgeschaltet ist - der Filter-Manager
+REM  gehoert zum Kern und antwortet unabhaengig von jedem Dienst.
+fltmc >nul 2>&1
 if %errorlevel% neq 0 goto elevate
 if not defined HOFERIUM_CALLER set "HOFERIUM_CALLER=%USERNAME%"
 goto have_admin
 
 :elevate
+REM  Wiedereintritts-Schutz: dieser Start kam schon aus einer Rechte-Anforderung.
+REM  Ohne den Abbruch wuerde jeder Versuch das naechste Fenster oeffnen und der
+REM  Rechner sich mit einer nicht endenden Kette von Konsolen zustellen.
+if defined HOFERIUM_ELEVATED (
+    echo(
+    echo [ABGEBROCHEN] Die Administrator-Rechte wurden bereits angefordert,
+    echo trotzdem laeuft Hoferium ohne sie.
+    echo Bitte hoferium.bat mit der rechten Maustaste anklicken und
+    echo "Als Administrator ausfuehren" waehlen.
+    echo(
+    pause
+    exit /b 1
+)
 REM  Benutzername als Argument mitgeben (in Anfuehrungszeichen ueber [char]34,
 REM  damit auch Namen mit Leerzeichen heil ankommen).
 echo Fordere Administrator-Rechte an ...
-powershell -NoProfile -Command "try{ Start-Process -FilePath $env:HOFERIUM_SELF -Verb RunAs -ArgumentList ([char]34 + $env:USERNAME + [char]34) } catch { exit 1 }"
+powershell -NoProfile -Command "try{ Start-Process -FilePath $env:HOFERIUM_SELF -Verb RunAs -ArgumentList ([char]34 + $env:USERNAME + [char]34), '--elevated' } catch { exit 1 }"
 REM  Diese Pruefung steht bewusst AUSSERHALB eines Klammerblocks - dort waere
 REM  %errorlevel% schon beim Einlesen ersetzt worden und immer veraltet.
 if %errorlevel% neq 0 (
@@ -156,11 +176,19 @@ echo(
 echo Neue Programmversion erkannt (%HAVEVER% -^> %WANTVER%).
 echo Pruefe die benoetigten Pakete ...
 call :installdeps
+REM  Der Rueckgabewert von pip zaehlt hier mit: fordert eine neue Fassung ein
+REM  zusaetzliches Paket an und scheitert die Installation, gelingt der Import
+REM  von customtkinter trotzdem noch aus der alten Einrichtung - der Marker
+REM  wuerde dann eine Umgebung als fertig ausweisen, der ein Paket fehlt.
+set "DEPRC=%errorlevel%"
 "%VPY%" -c "import customtkinter" >nul 2>&1
-if %errorlevel% neq 0 (
+if %errorlevel% neq 0 set "DEPRC=1"
+if not "%DEPRC%"=="0" (
     echo(
     echo [FEHLER] Die Pakete liessen sich nicht aktualisieren.
     echo Bitte Internetverbindung pruefen und erneut starten.
+    echo Die Umgebung bleibt auf der alten Version markiert, damit es der
+    echo naechste Start noch einmal versucht.
     pause
     exit /b 1
 )
@@ -173,24 +201,48 @@ REM  Installiert die benoetigten Pakete. Liegt eine requirements.txt
 REM  bei, hat sie Vorrang - so kann eine kuenftige Fassung weitere
 REM  Pakete anfordern, ohne dass dieser Starter sie kennen muss.
 REM ------------------------------------------------------------
+REM  Beide Zweige geben den Rueckgabewert von pip weiter ('exit /b' statt
+REM  'goto :eof'), damit der Aufrufer einen Fehlschlag ueberhaupt sehen kann.
 :installdeps
 if exist "%HOFERIUM_DIR%requirements.txt" goto reqfile
 echo Installiere Oberflaeche (customtkinter) ...
-"%VPY%" -m pip install --upgrade customtkinter
-goto :eof
+REM  Dieselbe Obergrenze wie in requirements.txt - eine kuenftige Hauptversion
+REM  mit geaenderter Programmierschnittstelle darf hier nicht hereinrutschen.
+"%VPY%" -m pip install --upgrade "customtkinter>=5.2,<6"
+exit /b %errorlevel%
 :reqfile
 echo Installiere Pakete aus requirements.txt ...
-"%VPY%" -m pip install --upgrade -r "%HOFERIUM_DIR%requirements.txt"
-goto :eof
+"%VPY%" -m pip install --upgrade --upgrade-strategy only-if-needed -r "%HOFERIUM_DIR%requirements.txt"
+exit /b %errorlevel%
 
 :run
 set "HOFERIUM_HOME=%HOFERIUM_DIR%"
 cd /d "%HOFERIUM_DIR%"
+REM  Lebenstest vor dem Start: zeigt die Umgebung auf ein inzwischen entferntes
+REM  Basis-Python, stirbt pythonw.exe mangels Konsole voellig lautlos - der
+REM  Doppelklick bliebe dauerhaft wirkungslos. Lieber neu einrichten.
+"%VPY%" -c "import sys" >nul 2>&1
+if %errorlevel% neq 0 (
+    echo(
+    echo Die Python-Umgebung ist nicht mehr benutzbar - sie wird neu eingerichtet.
+    goto freshsetup
+)
+REM  Fehlt das Programm selbst, entsteht der Importfehler noch vor dem
+REM  Absturz-Melder in nucleus und waere unter pythonw.exe nicht zu sehen.
+if not exist "%HOFERIUM_DIR%nucleus\__main__.py" (
+    echo(
+    echo [FEHLER] Der Ordner "nucleus" fehlt neben hoferium.bat.
+    echo Bitte das vollstaendige Hoferium-Verzeichnis verwenden.
+    echo(
+    pause
+    exit /b 1
+)
 call :hideclutter
 if exist "%VPYW%" (
     start "" /D "%HOFERIUM_DIR%" "%VPYW%" -m nucleus
 ) else (
     "%VPY%" -m nucleus
+    if errorlevel 1 pause
 )
 exit /b
 

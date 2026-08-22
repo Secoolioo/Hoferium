@@ -365,6 +365,11 @@ class HoferiumApp(ctk.CTk):
         self._backup_done = False
         self._reboot_win = None
         self._update_info = None
+        self._winget_ok = None       # None = noch nicht geprueft
+        self._task_gen = 0           # zaehlt die Aufgaben durch (Not-Aus-Timer)
+        self._task_blocking = False
+        self._last_backup_dir = None
+        self._log_paths: list = [local_dir() / "hoferium.log"]
         # Rueckkanal fuer Hintergrund-Threads. Tk darf NUR aus dem
         # Hauptthread angefasst werden - Ergebnisse kommen deshalb hier an
         # und werden von _pump_ui_queue im Tk-Thread verarbeitet.
@@ -373,6 +378,9 @@ class HoferiumApp(ctk.CTk):
         self._pages: dict = {}
         self._page_cards: dict = {}
         self.uninstall_rows: dict = {}
+        # Die Programmliste wird bei jedem Tastendruck im Suchfeld neu
+        # aufgebaut - die Auswahl muss deshalb ausserhalb der Zeilen liegen.
+        self._uninstall_selected: set = set()
         self.bloat_vars: dict = {}
         self.tweak_vars: dict = {}
         self.clean_vars: dict = {}
@@ -393,6 +401,35 @@ class HoferiumApp(ctk.CTk):
         self.show_page("dashboard")
         self.after(120, self._pump_ui_queue)
         self._start_update_check()
+        self.after(700, self._check_caller_account)
+
+    def _check_caller_account(self):
+        """Warnt EINMAL beim Start, wenn die UAC-Abfrage mit einem anderen
+        Konto bestaetigt wurde.
+
+        Dann zeigen %USERPROFILE% und HKCU auf DESSEN Profil - betroffen sind
+        Sicherung, Tweaks, Cleaner und die Programmliste gleichermassen,
+        deshalb steht der Hinweis hier und nicht je Aktion.
+        """
+        caller = os.environ.get("HOFERIUM_CALLER", "")
+        current = os.environ.get("USERNAME", "")
+        if not caller or not current or caller.lower() == current.lower():
+            return
+        text = (f"Das Programm laeuft als '{current}', angemeldet ist aber "
+                f"'{caller}'.\n\n"
+                f"Alles, was am Benutzerprofil haengt, trifft damit '{current}' "
+                f"und NICHT '{caller}':\n"
+                f"  - die Datensicherung (Browser, Notizen, eigene Dateien)\n"
+                f"  - die Tweaks, soweit sie am Benutzer haengen\n"
+                f"  - der Cleaner (raeumt das falsche Profil auf)\n"
+                f"  - die Liste der installierten Programme\n\n"
+                f"Empfehlung: Hoferium schliessen und hoferium.bat direkt als "
+                f"'{caller}' mit Administrator-Rechten starten.")
+        self._log_line(f"Anderes Benutzerkonto: laeuft als '{current}', "
+                       f"angemeldet ist '{caller}'.", "warn", to_file=True)
+        self._set_status(f"Achtung: laeuft als '{current}', angemeldet ist "
+                         f"'{caller}'.", COLORS["amber"])
+        messagebox.showwarning("Anderes Benutzerkonto", text)
 
     # --------------------------------------------------------------
     #  Versionspruefung
@@ -461,7 +498,7 @@ class HoferiumApp(ctk.CTk):
             if updater.apply(target, rep):
                 self._ui_queue.put(("restart", target))
 
-        self.run_task(worker, f"Update auf {info.latest}")
+        self.run_task(worker, f"Update auf {info.latest}", blocking=True)
 
     # ---- Neustart nach dem Update ----
     RESTART_DELAY_S = 4
@@ -528,6 +565,11 @@ class HoferiumApp(ctk.CTk):
                 elif kind == "catalog":
                     apps, source = payload
                     self._render_catalog(apps, source)
+                elif kind == "log":
+                    text, level = payload
+                    self._log_line(text, level)
+                elif kind == "backup_dir":
+                    self._show_backup_dir(payload)
         except queue.Empty:
             pass
         except Exception as e:              # ein kaputter Handler darf die
@@ -1215,6 +1257,9 @@ class HoferiumApp(ctk.CTk):
         act.pack(fill="x", padx=6, pady=8)
         self._btn(act, "►  SICHERUNG STARTEN", self._do_backup,
                   COLORS["green"]).pack(side="left", padx=6)
+        self.open_backup_btn = self._ghost(act, "▤  ORDNER OEFFNEN",
+                                           self._open_backup_dir, COLORS["green"])
+        # wird erst eingeblendet, wenn eine Sicherung durchgelaufen ist
         return p
 
     def _fill_password_helpers(self):
@@ -1344,6 +1389,11 @@ class HoferiumApp(ctk.CTk):
     def _show_backups(self, found):
         for w in self.restore_list.winfo_children():
             w.destroy()
+        # Die Karten der vorherigen Suche sind soeben zerstoert worden - blieben
+        # ihre Verweise stehen, wuerfe der Animator beim naechsten Farbwechsel
+        # einen TclError und liesse die restlichen Karten der Seite stehen.
+        self._page_cards["restore"] = [c for c in self._page_cards["restore"]
+                                       if c.winfo_exists()]
         self._backups = []
         if isinstance(found, Exception):
             self.restore_status.configure(text=f"Suche fehlgeschlagen: {found}",
@@ -1396,8 +1446,16 @@ class HoferiumApp(ctk.CTk):
         und waehlt Fehlendes ab."""
         for key, (cb, state) in self.restore_rows.items():
             has = bool(bset and bset.available.get(key))
-            state.configure(text="vorhanden" if has else "nicht enthalten",
-                            text_color=COLORS["lime"] if has else COLORS["dim"])
+            # Der Sicherungsauftrag notiert in sicherung.json, was damals nicht
+            # sauber durchlief. Ohne diesen Hinweis sieht ein halb kopiertes
+            # Profil hier genauso aus wie ein vollstaendiges.
+            hinweis = bset.hinweise.get(key, "") if bset else ""
+            if has and hinweis:
+                state.configure(text="vorhanden, aber unvollstaendig",
+                                text_color=COLORS["amber"])
+            else:
+                state.configure(text="vorhanden" if has else "nicht enthalten",
+                                text_color=COLORS["lime"] if has else COLORS["dim"])
             cb.configure(state="normal" if has else "disabled")
             if not has:
                 self.restore_vars[key].set(False)
@@ -1419,17 +1477,29 @@ class HoferiumApp(ctk.CTk):
                     f"dieser Rechner heisst "
                     f"'{os.environ.get('COMPUTERNAME', '?')}'.")
         liste = "\n".join(f"  - {g}" for g in gewaehlt)
+        # Was schon beim Sichern nicht sauber durchlief, kann auch beim
+        # Zurueckholen nicht vollstaendig sein - besser vorher sagen als
+        # hinterher wundern.
+        maengel = [f"  - {lbl}: {bset.hinweise[key]}"
+                   for key, lbl, _d, _n in self.RESTORE_ITEMS
+                   if opts.get(key) and bset.hinweise.get(key)]
+        if maengel:
+            warn += "\n\nHINWEIS aus der Sicherung selbst:\n" + "\n".join(maengel)
         if not messagebox.askyesno(
                 "Zurueckholen bestaetigen",
                 f"Aus {bset.path.name} wird zurueckgespielt:\n\n{liste}\n\n"
                 f"Vorhandene Profile werden dabei ersetzt. Der jetzige Zustand "
-                f"wird vorher gesichert.{warn}\n\nFortfahren?"):
+                f"wird vorher gesichert.{warn}\n\nFortfahren?",
+                default=messagebox.NO, icon=messagebox.WARNING):
             return
 
         backup_dir = local_dir() / "backups"
         options = restore.RestoreOptions(**opts)
 
         def worker(rep):
+            # Das Protokoll unter %LOCALAPPDATA% verschwindet mit der naechsten
+            # Neuinstallation - im Sicherungsordner bleibt es erhalten.
+            self._add_logfile(rep, bset.path / "PROTOKOLL.txt")
             ctx = RunContext(backup_dir, rep, admin=self.admin)
             restore.RestoreJob(ctx, bset).run(options)
 
@@ -1984,7 +2054,7 @@ class HoferiumApp(ctk.CTk):
         p = self._page("info")
         card = self._card(p, "info", "Hoferium", "?")
         txt = (
-            "Version 1.0\n\n"
+            f"Version {__version__}\n\n"
             "Werkzeug fuer den Wechsel und das Neuaufsetzen von Windows-PCs:\n"
             "  [+] Datensicherung (Browser, Windows-Key, WLAN, Programme, Treiber ...)\n"
             "  [+] Software von offiziellen Quellen holen (Download oder winget)\n"
@@ -2012,31 +2082,41 @@ class HoferiumApp(ctk.CTk):
             self.backup_target.set(d)
 
     def _do_backup(self):
-        # Wurde der UAC-Dialog mit einem anderen Konto bestaetigt, zeigen
-        # %USERPROFILE%/%APPDATA% auf DESSEN Profil - die Sicherung waere leer.
-        caller = os.environ.get("HOFERIUM_CALLER", "")
-        current = os.environ.get("USERNAME", "")
-        if caller and current and caller.lower() != current.lower():
-            if not messagebox.askyesno(
-                    "Anderes Benutzerkonto",
-                    f"Das Programm laeuft als '{current}', angemeldet ist aber "
-                    f"'{caller}'.\n\nGesichert wuerde das Profil von '{current}' - "
-                    f"also NICHT die Daten von '{caller}'.\n\n"
-                    f"Empfehlung: abbrechen und hoferium.bat direkt als '{caller}' "
-                    f"mit Administrator-Rechten starten.\n\nTrotzdem fortfahren?"):
-                return
+        if not any(v.get() for v in self.backup_opts.values()):
+            return self._need_selection()
         opt = backup_mod.BackupOptions(**{k: v.get() for k, v in self.backup_opts.items()})
         root = Path(self.backup_target.get() or str(backup_root()))
         outdir = root / config.backup_folder_name()
 
         def worker(rep):
             outdir.mkdir(parents=True, exist_ok=True)
+            # Das Protokoll unter %LOCALAPPDATA% ueberlebt das Formatieren
+            # nicht - gebraucht wird es aber genau danach.
+            self._add_logfile(rep, outdir / "PROTOKOLL.txt")
             ctx = RunContext(outdir, rep, admin=self.admin)
             result = backup_mod.BackupJob(ctx).run(opt)
-            if result.get("ok"):
+            # Dieses Kennzeichen unterdrueckt die Warnung im Boot-Dialog, also
+            # genau vor dem Formatieren - halbe Schritte duerfen es nicht setzen.
+            if (result.get("ok") and not result.get("fail")
+                    and not result.get("partial")):
                 self._backup_done = True
+            self._ui_queue.put(("backup_dir", outdir))
 
         self.run_task(worker, "Sicherung laeuft")
+
+    def _show_backup_dir(self, folder):
+        """Blendet den Knopf erst ein, wenn es wirklich einen Ordner gibt."""
+        self._last_backup_dir = folder
+        self.open_backup_btn.pack(side="left", padx=6)
+
+    def _open_backup_dir(self):
+        folder = self._last_backup_dir
+        if not folder:
+            return
+        try:
+            os.startfile(str(folder))          # Explorer oeffnen
+        except Exception as e:
+            self._log_line(f"Ordner liess sich nicht oeffnen: {e}", "warn")
 
     def _do_download(self):
         apps = [app for (app, v) in self.software_vars.values() if v.get()]
@@ -2050,7 +2130,10 @@ class HoferiumApp(ctk.CTk):
         apps = [app for (app, v) in self.software_vars.values() if v.get()]
         if not apps:
             return self._need_selection()
-        if not downloader.DownloadManager.winget_available():
+        # Nur den beim Start im Thread ermittelten Zustand lesen: die Pruefung
+        # startet einen Prozess und wuerde die Oberflaeche hier einfrieren.
+        # Steht er noch nicht fest, uebernimmt install_all() das selbst.
+        if self._winget_ok is False:
             if not messagebox.askyesno(
                     "winget fehlt",
                     "Auf diesem PC ist winget (App-Installer) nicht vorhanden.\n\n"
@@ -2063,7 +2146,7 @@ class HoferiumApp(ctk.CTk):
                       "Installiere per winget")
 
     def _do_setup_winget(self):
-        if downloader.DownloadManager.winget_available():
+        if self._winget_ok:
             self._set_status("winget ist bereits vorhanden.", COLORS["green"])
             return
         if not messagebox.askyesno(
@@ -2086,6 +2169,7 @@ class HoferiumApp(ctk.CTk):
         nur dann ein, wenn er gebraucht wird."""
         if available is None:
             available = downloader.DownloadManager.winget_available()
+        self._winget_ok = bool(available)
         if available:
             self.winget_label.configure(text="winget: vorhanden",
                                         text_color=COLORS["green"])
@@ -2101,9 +2185,19 @@ class HoferiumApp(ctk.CTk):
         for w in self.uninstall_list.winfo_children():
             w.destroy()
         self.uninstall_rows.clear()
+        self._uninstall_selected.clear()
 
         def worker():
-            self._ui_queue.put(("apps", list_installed(include_appx=True)))
+            rep = Reporter()
+            apps = list_installed(include_appx=True, reporter=rep)
+            # Dieser Reporter gehoert zu keiner laufenden Aufgabe - seine
+            # Meldungen holt niemand ab, deshalb hier selbst weiterreichen:
+            # sonst saehe eine gescheiterte AppX-Abfrage aus wie ein PC ohne
+            # Windows-Apps.
+            while not rep.q.empty():
+                _kind, level, text = rep.q.get_nowait()
+                self._ui_queue.put(("log", (text, level)))
+            self._ui_queue.put(("apps", apps))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2131,7 +2225,9 @@ class HoferiumApp(ctk.CTk):
             return
         end = min(idx + 30, len(items))
         for app in items[idx:end]:
-            var = tk.BooleanVar(value=False)
+            var = tk.BooleanVar(value=app.key in self._uninstall_selected)
+            var.trace_add("write",
+                          lambda *_a, k=app.key, v=var: self._remember_uninstall(k, v))
             self.uninstall_rows[app.key] = (app, var)
             row = ctk.CTkFrame(self.uninstall_list, fg_color="transparent")
             row.pack(fill="x", padx=4, pady=1)
@@ -2147,8 +2243,19 @@ class HoferiumApp(ctk.CTk):
         if end < len(items):
             self.after(1, lambda: self._render_uninstall_chunk(items, end, token))
 
+    def _remember_uninstall(self, key, var):
+        """Haelt die Auswahl ueber den Suchfilter hinweg fest - die Zeilen
+        selbst werden bei jedem Tastendruck zerstoert und neu gebaut."""
+        if var.get():
+            self._uninstall_selected.add(key)
+        else:
+            self._uninstall_selected.discard(key)
+
     def _do_uninstall(self):
-        sel = [app for (app, v) in self.uninstall_rows.values() if v.get()]
+        # Gegen die vollstaendige Liste aufloesen: gerade gefilterte Treffer
+        # sind zwar nicht sichtbar, aber trotzdem angehakt.
+        sel = [a for a in getattr(self, "_all_uninstall_apps", [])
+               if a.key in self._uninstall_selected]
         if not sel:
             return self._need_selection()
         names = "\n".join(f"  - {a.name}" for a in sel[:15])
@@ -2157,7 +2264,8 @@ class HoferiumApp(ctk.CTk):
         if not messagebox.askyesno(
                 "Deinstallieren bestaetigen",
                 f"{len(sel)} Programm(e) werden entfernt"
-                f"{' (inkl. Reste)' if deep else ''}:\n\n{names}{more}\n\nFortfahren?"):
+                f"{' (inkl. Reste)' if deep else ''}:\n\n{names}{more}\n\nFortfahren?",
+                default=messagebox.NO, icon=messagebox.WARNING):
             return
         backup_dir = local_dir() / "backups" / config.timestamp()
         self.run_task(
@@ -2175,7 +2283,8 @@ class HoferiumApp(ctk.CTk):
                 "NICHT angetastet werden selbst installierte Programme.\n"
                 "Die genaue Liste erscheint vor dem Entfernen im Log.\n\n"
                 "Vorher werden - soweit moeglich - ein Wiederherstellungspunkt und\n"
-                "Registry-Backups angelegt. Fortfahren?"):
+                "Registry-Backups angelegt. Fortfahren?",
+                default=messagebox.NO, icon=messagebox.WARNING):
             return
         deep = self.deep_debloat_var.get()
         edge = self.edge_var.get()
@@ -2193,7 +2302,10 @@ class HoferiumApp(ctk.CTk):
 
         def worker(rep):
             un = uninstaller.Uninstaller(rep, backup_dir)
-            apps = uninstaller.mark_bloatware(list_installed(include_appx=True))
+            # Mit Reporter, damit eine gescheiterte AppX-Abfrage nicht als
+            # "keine Bloatware vorhanden" durchgeht.
+            apps = uninstaller.mark_bloatware(
+                list_installed(include_appx=True, reporter=rep))
             targets = [a for a in apps
                        if a.kind == "appx" and any(f.lower() in a.name.lower() for f in frags)]
             if not targets:
@@ -2223,8 +2335,12 @@ class HoferiumApp(ctk.CTk):
             lbl.configure(text="...")
 
         def worker():
+            # Der Scan laeuft neben dem Task-Runner und hat deshalb keinen
+            # Reporter der Oberflaeche; dieser eigene bedient nur status() und
+            # cancelled() innerhalb von scan().
+            rep = Reporter()
             try:
-                data = tweaks.CleanupEngine(Reporter()).scan(targets)
+                data = tweaks.CleanupEngine(rep).scan(targets, rep)
             except Exception as e:
                 data = {"__error__": str(e)}
             self._ui_queue.put(("clean_sizes", data))
@@ -2234,7 +2350,6 @@ class HoferiumApp(ctk.CTk):
 
     def _show_clean_sizes(self, data):
         self._clean_scanning = False
-        self._last_cancel = 0.0
         if "__error__" in data:
             self.clean_total.configure(text="Berechnung fehlgeschlagen")
             self._set_status(f"Cleaner: {data['__error__']}", COLORS["amber"])
@@ -2271,7 +2386,8 @@ class HoferiumApp(ctk.CTk):
         namen = "\n".join(f"  - {t.name}" for t in targets)
         if not messagebox.askyesno(
                 "Bereinigen bestaetigen",
-                f"Folgendes wird unwiderruflich geloescht:\n\n{namen}\n\nFortfahren?"):
+                f"Folgendes wird unwiderruflich geloescht:\n\n{namen}\n\nFortfahren?",
+                default=messagebox.NO, icon=messagebox.WARNING):
             return
         self.run_task(lambda rep: tweaks.CleanupEngine(rep).clean(targets), "Bereinige")
 
@@ -2281,20 +2397,27 @@ class HoferiumApp(ctk.CTk):
     # ==============================================================
     #  Task-Runner
     # ==============================================================
-    def run_task(self, worker, name="Aufgabe"):
+    def run_task(self, worker, name="Aufgabe", blocking=False):
+        """blocking=True: Das Fenster darf bis zum Ende nicht geschlossen
+        werden - beim Update wuerde der Thread sonst mitten im Ersetzen der
+        Programmdateien abgewuergt."""
         if self._running:
             messagebox.showinfo("Hoferium", "Es laeuft bereits eine Aufgabe.")
             return
         self._running = True
+        self._task_blocking = blocking
+        self._task_gen += 1
         self.equalizer.active = True
-        self.reporter = Reporter(logfile=local_dir() / "hoferium.log")
+        logfile = local_dir() / "hoferium.log"
+        self.reporter = Reporter(logfile=logfile)
+        self._log_paths = [logfile]
         self.progress.set(0)
         self._last_cancel = 0.0
         self.cancel_btn.configure(state="normal", text="ABBRECHEN",
                                   text_color=COLORS["red"], border_width=2,
                                   border_color=COLORS["red"])
         self._set_status(name + " ...", COLORS["cyan"])
-        self._log_line(f"=== {name} ===", "head")
+        self._log_line(f"=== {name} ===", "head", to_file=True)
         threading.Thread(target=self._thread_wrap, args=(worker,), daemon=True).start()
         self.after(80, self._poll)
 
@@ -2313,6 +2436,20 @@ class HoferiumApp(ctk.CTk):
     def _on_close(self):
         """Fenster schliessen: erst Animation und laufende Aufgabe stoppen,
         damit keine after()-Rueckrufe auf zerstoerte Widgets treffen."""
+        if self._running and self._task_blocking:
+            # Der Update-Thread fragt den Abbruch nirgends ab; destroy() wuerde
+            # ihn mitten im Ersetzen der Dateien beenden.
+            return messagebox.showinfo(
+                "Update laeuft",
+                "Hoferium ersetzt gerade seine eigenen Programmdateien. Ein "
+                "Abbruch wuerde eine halbe Installation hinterlassen.\n\n"
+                "Bitte warten - Hoferium startet danach von selbst neu.")
+        if self._running and not messagebox.askyesno(
+                "Es laeuft noch etwas",
+                "Eine Aufgabe laeuft gerade. Beim Schliessen bleibt sie "
+                "unvollstaendig.\n\nTrotzdem schliessen?",
+                default=messagebox.NO, icon=messagebox.WARNING):
+            return
         self._closing = True
         try:
             self.anim.stop()
@@ -2320,6 +2457,12 @@ class HoferiumApp(ctk.CTk):
             pass
         if self.reporter is not None:
             self.reporter.cancel()
+        if self._reboot_win is not None:
+            # Der Countdown-Dialog verschwindet mit dem Fenster - der von
+            # Windows bereits angekuendigte Neustart liefe sonst trotzdem an.
+            winutils.cancel_reboot()
+            self._log_line("Neustart abgebrochen (Fenster geschlossen).", "warn",
+                           to_file=True)
         self._running = False
         self.destroy()
 
@@ -2348,6 +2491,7 @@ class HoferiumApp(ctk.CTk):
 
     def _on_done(self, summary):
         self._running = False
+        self._task_blocking = False
         self.equalizer.active = False
         self.progress.set(1)
         self.progress.configure(progress_color=COLORS["green"])
@@ -2361,12 +2505,21 @@ class HoferiumApp(ctk.CTk):
                 good = False
             elif "ok" in summary:
                 fails = summary.get("fail", 0)
+                # "failed" und "partial" tragen beide NAMEN, keine Anzahlen -
+                # so liefert es BackupJob._write_summary. Eine blosse Zahl hilft
+                # niemandem weiter; erst der Name sagt, was nachzuholen ist.
+                teil_namen = summary.get("partial") or []
                 msg = f"Fertig - {summary.get('ok', 0)} ok, {fails} Fehler."
-                good = not fails
+                namen = summary.get("failed") or []
+                if namen:
+                    msg += " Fehlgeschlagen: " + ", ".join(namen)
+                if teil_namen:
+                    msg += " Nur teilweise: " + ", ".join(teil_namen)
+                good = not fails and not teil_namen
             elif "freed_mb" in summary:
                 msg = f"Fertig - {summary['freed_mb']} MB frei."
         self._set_status(msg, COLORS["green"] if good else COLORS["amber"])
-        self._log_line(msg, "ok" if good else "warn")
+        self._log_line(msg, "ok" if good else "warn", to_file=True)
         if isinstance(summary, dict) and summary.get("dir"):
             self._log_line(f"Ordner: {summary['dir']}", "info")
 
@@ -2392,28 +2545,49 @@ class HoferiumApp(ctk.CTk):
             self.reporter.cancel()
         killed = winutils.kill_all()
         self._log_line(f"Sofort-Abbruch: {killed} laufende(s) Programm(e) beendet.",
-                       "warn")
+                       "warn", to_file=True)
         self._set_status(f"Sofort abgebrochen ({killed} Programme beendet).",
                          COLORS["red"])
         self.cancel_btn.configure(text="ABBRECHEN", fg_color=COLORS["surface3"],
                                   text_color=COLORS["muted"])
         # Bleibt der Worker trotzdem haengen, wird die Oberflaeche nach kurzer
         # Zeit freigegeben - sonst nimmt sie keine neue Aufgabe mehr an.
-        self.after(4000, self._release_if_stuck)
+        self.after(4000, lambda g=self._task_gen: self._release_if_stuck(g))
 
-    def _release_if_stuck(self):
-        if self._running:
-            self._log_line("Aufgabe reagierte nicht mehr - Oberflaeche freigegeben.",
-                           "warn")
-            self._on_done({"ok": 0, "fail": 1})
+    def _release_if_stuck(self, gen):
+        # Ohne den Vergleich der Generation wuerde der verspaetete Rueckruf die
+        # inzwischen gestartete NAECHSTE Aufgabe fuer haengend halten und sie
+        # als fehlgeschlagen abschliessen.
+        if gen != self._task_gen or not self._running:
+            return
+        self._log_line("Aufgabe reagierte nicht mehr - Oberflaeche freigegeben.",
+                       "warn", to_file=True)
+        self._on_done({"ok": 0, "fail": 1})
 
-    def _log_line(self, text, level="info"):
+    def _add_logfile(self, rep, path):
+        """Zweites Protokollziel - fuer den Reporter UND fuer die Zeilen, die
+        die Oberflaeche selbst schreibt."""
+        rep.add_logfile(path)
+        self._log_paths.append(Path(path))
+
+    def _log_line(self, text, level="info", to_file=False):
         mark = LEVEL_MARKS.get(level, "  ·")
         self.log_text.configure(state="normal")
         self.log_text.insert("end", f"{mark} {text}\n",
                              level if level in LEVEL_COLORS else "info")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
+        # Zeilen aus der Oberflaeche laufen nie durch die Reporter-Queue - ohne
+        # to_file fehlte in der Datei genau die Gliederung eines Laufs
+        # (Kopfzeile, Ergebnis, Abbruch).
+        if to_file:
+            ts = time.strftime("%H:%M:%S")
+            for path in list(self._log_paths):
+                try:
+                    with Path(path).open("a", encoding="utf-8") as fh:
+                        fh.write(f"[{ts}] [{level.upper()}] {text}\n")
+                except Exception:
+                    pass
 
     def _clear_log(self):
         self.log_text.configure(state="normal")

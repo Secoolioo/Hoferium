@@ -9,6 +9,7 @@ laesst sich dadurch rueckgaengig machen.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -18,7 +19,8 @@ from pathlib import Path
 
 from .config import BACKUP_ROOT_NAME
 from .context import RunContext
-from .winutils import IS_WINDOWS, copy_path, is_admin, powershell, robocopy, run
+from .winutils import (IS_WINDOWS, copy_path, is_admin, known_folders,
+                       powershell, robocopy, run)
 
 # Die Sekunden sind optional: Sicherungen aus Fassungen vor 1.8.0 haben sie
 # nicht und muessen weiterhin gefunden werden.
@@ -39,6 +41,19 @@ PARTS = {
     "hosts":       ("08_Sonstiges", "hosts-Datei"),
 }
 
+# Schritt -> Programm, das dafuer geschlossen sein muss (Schreibweise wie in
+# _running_programs). Ein laufendes Programm haelt sein Profil offen und
+# schreibt seinen eigenen Stand beim Beenden zurueck - der eingespielte Stand
+# waere danach still wieder weg, der Schritt haette Erfolg gemeldet.
+BLOCKERS = {
+    "Firefox-Profil":     "Firefox",
+    "Thunderbird-Profil": "Thunderbird",
+    "Outlook-Dateien":    "Outlook",
+}
+
+# Vom Sicherungsauftrag geschriebenes Protokoll je Sicherungsordner.
+MANIFEST_NAME = "sicherung.json"
+
 
 @dataclass
 class BackupSet:
@@ -47,6 +62,7 @@ class BackupSet:
     computer: str = ""
     stamp: str = ""
     available: dict = field(default_factory=dict)   # key -> bool
+    hinweise: dict = field(default_factory=dict)    # key -> Warntext aus der Sicherung
 
     @property
     def is_this_pc(self) -> bool:
@@ -110,7 +126,7 @@ def find_backups(root) -> list:
                 continue
             seen.add(entry)
             bset = BackupSet(entry, m.group("pc"), m.group("stamp"))
-            bset.available = _detect_parts(entry)
+            bset.available, bset.hinweise = _detect_parts(entry)
             found.append(bset)
 
     # stabil sortieren: erst nach Datum (neueste zuerst), dann eigener PC nach oben
@@ -119,10 +135,15 @@ def find_backups(root) -> list:
     return found
 
 
-def _detect_parts(folder: Path) -> dict:
-    """Prueft, welche Bestandteile die Sicherung wirklich enthaelt."""
+def _detect_parts(folder: Path) -> tuple:
+    """Prueft, welche Bestandteile die Sicherung wirklich enthaelt.
+
+    Liefert (vorhanden, hinweise). Die Hinweise stammen aus `sicherung.json`;
+    fehlt die Datei - aeltere Sicherungen haben sie nicht -, bleibt der
+    Hinweis-Teil leer und es zaehlt allein, was auf dem Datentraeger liegt.
+    """
     b = folder
-    return {
+    vorhanden = {
         "wifi": any((b / "03_WLAN" / "profile_xml").glob("*.xml"))
         if (b / "03_WLAN" / "profile_xml").is_dir() else False,
         "firefox": (b / "05_Browser" / "Firefox").is_dir(),
@@ -138,6 +159,54 @@ def _detect_parts(folder: Path) -> dict:
         "drivers": (b / "07_Treiber").is_dir() and any((b / "07_Treiber").iterdir()),
         "hosts": (b / "08_Sonstiges" / "hosts").is_file(),
     }
+    return vorhanden, _read_manifest_notes(folder)
+
+
+def _read_manifest_notes(folder: Path) -> dict:
+    """Liest aus `sicherung.json`, welche Schritte beim Sichern nicht sauber
+    durchliefen, und ordnet das ueber den in PARTS hinterlegten Ordnernamen
+    den Bestandteilen zu.
+
+    Die Datei stammt vom Rechner des Anwenders und darf deshalb alles
+    enthalten - jeder Zugriff bleibt tolerant, ein kaputtes Protokoll darf die
+    Sicherung nicht unbrauchbar machen.
+    """
+    datei = folder / MANIFEST_NAME
+    if not datei.is_file():
+        return {}
+    try:
+        daten = json.loads(datei.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(daten, dict):
+        return {}
+
+    hinweise: dict = {}
+    for schritt in daten.get("schritte") or []:
+        if not isinstance(schritt, dict):
+            continue
+        zustand = str(schritt.get("zustand", "")).lower()
+        if zustand not in ("fehler", "teilweise"):
+            continue
+        name = str(schritt.get("name", "")).strip()
+        detail = "; ".join(str(h) for h in (schritt.get("hinweise") or [])
+                           if str(h).strip())
+        was = f"\"{name}\" " if name else ""
+        text = (f"{was}ist beim Sichern fehlgeschlagen" if zustand == "fehler"
+                else f"{was}ist beim Sichern nur teilweise gelungen")
+        if detail:
+            text += f": {detail}"
+        # Zugeordnet wird ueber den Ordner, den der Sicherungsauftrag zu jedem
+        # Schritt mitschreibt. Ein Vergleich der Schrittnamen ginge nicht: sie
+        # heissen "Browser-Daten", der Ordner heisst "05_Browser".
+        ziel = str(schritt.get("ordner", ""))
+        if not ziel:
+            continue
+        for key, (ordner, _label) in PARTS.items():
+            if ordner.lower() == ziel.lower():
+                hinweise[key] = (hinweise[key] + " / " + text
+                                 if key in hinweise else text)
+    return hinweise
 
 
 def _env_dir(var: str, *parts) -> Path:
@@ -214,14 +283,26 @@ class RestoreJob:
 
         blocked = self._running_programs()
         if blocked:
-            self.r.warn("Bitte zuerst schliessen: " + ", ".join(blocked) +
-                        " - sonst werden Profile nicht vollstaendig ersetzt.")
+            self.r.warn("Diese Programme laufen noch: " + ", ".join(blocked) +
+                        ". Die zugehoerigen Schritte werden uebersprungen.")
 
         total = len(steps)
         for i, (name, fn) in enumerate(steps):
             if self.r.cancelled:
                 self.r.warn("Abgebrochen.")
                 break
+            stoerer = BLOCKERS.get(name)
+            if stoerer and stoerer in blocked:
+                # Lieber gar nicht einspielen als scheinbar: das Programm
+                # ueberschriebe den zurueckgeholten Stand beim Beenden wieder.
+                self.results.append((name, False, f"{stoerer} laeuft noch"))
+                self.r.warn(f"{name}: uebersprungen, weil {stoerer} noch laeuft "
+                            f"- sonst waere der zurueckgeholte Stand nach dem "
+                            f"naechsten Schliessen von {stoerer} wieder weg. "
+                            f"Bitte {stoerer} beenden und die Wiederherstellung "
+                            f"erneut starten.")
+                self.r.progress((i + 1) / total)
+                continue
             self.r.status(f"{name} ...")
             self.r.log(f"--- {name} ---", "head")
             try:
@@ -248,6 +329,8 @@ class RestoreJob:
             raise RuntimeError("Administrator-Rechte noetig")
         added = 0
         for xf in files:
+            if self.r.cancelled:
+                raise RuntimeError(f"abgebrochen nach {added} von {len(files)} Profil(en)")
             res = run(["netsh", "wlan", "add", "profile",
                        f"filename={xf}", "user=all"], timeout=60)
             if res.rc == 0:
@@ -289,9 +372,14 @@ class RestoreJob:
 
     def _outlook(self) -> None:
         target = _env_dir("LOCALAPPDATA", "Microsoft", "Outlook")
+        # Eine gleichnamige .pst wird kommentarlos ueberschrieben - das ist der
+        # gesamte Mailbestand, der seit der Sicherung dazugekommen ist.
+        self._preserve(target, "Outlook")
         target.mkdir(parents=True, exist_ok=True)
         n = 0
         for pst in (self.src / "10_EMail" / "Outlook_PST").glob("*.pst"):
+            if self.r.cancelled:
+                raise RuntimeError(f"abgebrochen nach {n} Datei(en)")
             res = copy_path(pst, target)
             if res.ok:
                 n += 1
@@ -314,18 +402,33 @@ class RestoreJob:
     def _userfiles(self) -> None:
         base = self.src / "06_Eigene-Dateien"
         up = _env_dir("USERPROFILE")
+        # Die Sicherung hat die Quellordner ueber known_folders() bestimmt; bei
+        # aktiver OneDrive-Ordnerumleitung liegt "Documents" nicht unter
+        # %USERPROFILE%, und stur dorthin kopierte Dateien faende der Anwender
+        # im Explorer nirgends wieder.
+        ziele = known_folders()
         copied = 0
         for folder in base.iterdir():
+            if self.r.cancelled:
+                break
             if not folder.is_dir():
                 continue
-            res = robocopy(folder, up / folder.name)
+            ziel = Path(ziele.get(folder.name, up / folder.name))
+            res = robocopy(folder, ziel)
+            if self.r.cancelled:
+                # Ein von kill_all() abgewuergtes robocopy endet mit Code 1 und
+                # gaelte sonst als geglueckte Kopie - der Ordner ist halb.
+                raise RuntimeError(f"abgebrochen - {ziel} ist unvollstaendig")
             if res.ok:
                 copied += 1
+                self.r.log(f"{folder.name} -> {ziel}")
             else:
                 self.r.warn(f"{folder.name}: Code {res.rc}")
+        if self.r.cancelled:
+            raise RuntimeError(f"abgebrochen nach {copied} Ordner(n)")
         if not copied:
             raise RuntimeError("nichts kopiert")
-        self.r.log(f"{copied} Ordner nach {up} zurueckgelegt.")
+        self.r.log(f"{copied} Ordner zurueckgelegt.")
 
     def _programs(self) -> None:
         json_file = self.src / "04_Programme" / "winget-programme.json"
@@ -376,19 +479,23 @@ class RestoreJob:
 
     # ---------------- Helfer ----------------
     def _preserve(self, path: Path, label: str) -> None:
-        """Sichert den aktuellen Zustand, bevor er ueberschrieben wird."""
+        """Sichert den aktuellen Zustand, bevor er ueberschrieben wird.
+
+        Der Fehlschlag muss den Schritt anhalten: robocopy und copy_path werfen
+        nie eine Ausnahme, sondern melden ihn nur im Rueckgabewert - ungeprueft
+        wuerde also genau dann ohne Rueckversicherung ueberschrieben, wenn sie
+        gebraucht wird.
+        """
         if not path.exists():
             return
         self.safety.mkdir(parents=True, exist_ok=True)
         target = self.safety / label
-        try:
-            if path.is_dir():
-                robocopy(path, target)
-            else:
-                copy_path(path, target)
-            self.r.log(f"Bisheriger Stand von {label} gesichert.")
-        except Exception as e:
-            self.r.warn(f"{label}: konnte den bisherigen Stand nicht sichern ({e})")
+        res = robocopy(path, target) if path.is_dir() else copy_path(path, target)
+        if not res.ok:
+            raise RuntimeError(
+                f"bisheriger Stand von {label} liess sich nicht sichern "
+                f"(Code {res.rc}) - es wurde nichts ueberschrieben")
+        self.r.log(f"Bisheriger Stand von {label} gesichert.")
 
     def _running_programs(self) -> list:
         """Programme, die den Import stoeren wuerden."""

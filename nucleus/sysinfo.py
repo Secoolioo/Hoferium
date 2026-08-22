@@ -19,12 +19,32 @@ $cs   = Get-CimInstance Win32_ComputerSystem
 $bios = Get-CimInstance Win32_BIOS
 $bb   = Get-CimInstance Win32_BaseBoard
 $cpu  = Get-CimInstance Win32_Processor | Select-Object -First 1
-$gpus = @(Get-CimInstance Win32_VideoController | Where-Object { $_.Name } |
-          ForEach-Object { "$($_.Name) ($([math]::Round($_.AdapterRAM/1GB,1)) GB)" })
+# Win32_VideoController.AdapterRAM ist als uint32 deklariert und deckelt jede Karte
+# bei 4 GB - die echte Groesse steht als 64-Bit-Wert im Klassenschluessel des Adapters.
+$gpuRam = @{}
+Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}' |
+    Where-Object { $_.PSChildName -match '^\d{4}$' } | ForEach-Object {
+        $p = Get-ItemProperty -LiteralPath $_.PSPath
+        $v = $p.'HardwareInformation.qwMemorySize'
+        # Nur der Zahlenwert wird uebernommen; alte Treiber legen dort ein Byte-Array
+        # ab, mit dem die Division unten abbrechen wuerde.
+        if ($p.DriverDesc -and ($v -is [int64] -or $v -is [int32]) -and $v -gt 0) {
+            $gpuRam["$($p.DriverDesc)"] = [int64]$v
+        }
+    }
+$gpus = @(Get-CimInstance Win32_VideoController | Where-Object { $_.Name } | ForEach-Object {
+    $bytes = $gpuRam["$($_.Name)"]
+    if ($bytes) { "$($_.Name) ($([math]::Round($bytes/1GB,1)) GB)" }
+    elseif ($_.DriverVersion) { "$($_.Name) (Treiber $($_.DriverVersion))" }
+    else { "$($_.Name)" }
+})
 $ramMods = @(Get-CimInstance Win32_PhysicalMemory)
 $ramSum  = ($ramMods | Measure-Object -Property Capacity -Sum).Sum
+# Win32_PhysicalMemory liest die SMBIOS-Tabelle; fehlt sie (etwa in virtuellen
+# Maschinen), stuende hier sonst kommentarlos "0 GB".
+if (-not $ramSum) { $ramSum = $cs.TotalPhysicalMemory }
 $speed   = ($ramMods | Select-Object -First 1).Speed
-$disks = @(Get-CimInstance Win32_DiskDrive | ForEach-Object {
+$disks = @(Get-CimInstance Win32_DiskDrive | Where-Object { $_.Size } | ForEach-Object {
     "$($_.Model) - $([math]::Round($_.Size/1GB,0)) GB"
 })
 $vols = @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object {
@@ -33,12 +53,30 @@ $vols = @(Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Obje
 $key = (Get-CimInstance -ClassName SoftwareLicensingService).OA3xOriginalProductKey
 $lic = Get-CimInstance SoftwareLicensingProduct -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" |
        Select-Object -First 1
-$act = switch ($lic.LicenseStatus) {
-    0 {'Nicht lizenziert'} 1 {'Aktiviert'} 2 {'Testzeitraum'} 3 {'Toleranzzeitraum'}
-    4 {'Nicht echt'} 5 {'Benachrichtigung'} 6 {'Verlaengerter Zeitraum'} default {'Unbekannt'}
+# Findet der Filter keine Lizenz, liefert switch auf $null gar keinen Zweig - auch
+# nicht default -, darum steht der Ausweichtext vor der Fallunterscheidung.
+$act = 'Unbekannt'
+if ($lic) {
+    $act = switch ($lic.LicenseStatus) {
+        0 {'Nicht lizenziert'} 1 {'Aktiviert'} 2 {'Testzeitraum'} 3 {'Toleranzzeitraum'}
+        4 {'Nicht echt'} 5 {'Benachrichtigung'} 6 {'Verlaengerter Zeitraum'} default {'Unbekannt'}
+    }
 }
 $net = @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True" |
          ForEach-Object { "$($_.Description): $($_.IPAddress -join ', ')" })
+
+# Jedes Funktionsupdate ueberschreibt das Installationsdatum des Betriebssystems.
+# Windows sichert den vorherigen Stand unter HKLM\SYSTEM\Setup\Source OS ... ,
+# darum gilt der aelteste dort gefundene Zeitpunkt als Erstinstallation.
+$inst = $os.InstallDate
+Get-ChildItem 'HKLM:\SYSTEM\Setup' | Where-Object { $_.PSChildName -like 'Source OS*' } |
+    ForEach-Object {
+        $sec = (Get-ItemProperty -LiteralPath $_.PSPath).InstallDate
+        if ($sec) {
+            $alt = [System.DateTimeOffset]::FromUnixTimeSeconds([int64]$sec).LocalDateTime
+            if (-not $inst -or $alt -lt $inst) { $inst = $alt }
+        }
+    }
 
 [pscustomobject]@{
     Computer     = $cs.Name
@@ -47,7 +85,7 @@ $net = @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=Tr
     Version      = $os.Version
     Build        = $os.BuildNumber
     Architektur  = $os.OSArchitecture
-    Installiert  = if ($os.InstallDate) { $os.InstallDate.ToString('dd.MM.yyyy HH:mm') } else { '' }
+    Installiert  = if ($inst) { $inst.ToString('dd.MM.yyyy HH:mm') } else { '' }
     LetzterStart = if ($os.LastBootUpTime) { $os.LastBootUpTime.ToString('dd.MM.yyyy HH:mm') } else { '' }
     Hersteller   = $cs.Manufacturer
     Modell       = $cs.Model
@@ -58,8 +96,10 @@ $net = @(Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=Tr
     CPU          = $cpu.Name
     CPUKerne     = "$($cpu.NumberOfCores) Kerne / $($cpu.NumberOfLogicalProcessors) Threads"
     CPUTakt      = "$([math]::Round($cpu.MaxClockSpeed/1000,2)) GHz"
-    RAM          = "$([math]::Round($ramSum/1GB,0)) GB"
-    RAMDetail    = "$($ramMods.Count) Riegel" + $(if ($speed) { " @ $speed MHz" } else { "" })
+    RAM          = if ($ramSum) { "$([math]::Round($ramSum/1GB,0)) GB" } else { '' }
+    RAMDetail    = if ($ramMods.Count -gt 0) {
+        "$($ramMods.Count) Riegel" + $(if ($speed) { " @ $speed MHz" } else { "" })
+    } else { '' }
     GPU          = ($gpus -join ' | ')
     Datentraeger = ($disks -join ' | ')
     Laufwerke    = ($vols -join ' | ')

@@ -1,0 +1,59 @@
+name: Pruefung
+
+# main ist der Auslieferungskanal, nicht nur der Entwicklungszweig: Der
+# Update-Mechanismus zieht VERSION und das Programmarchiv direkt von
+# refs/heads/main. Zwischen einem Push und dem Update auf einem fremden Rechner
+# liegt kein Zwischenschritt - ein Syntaxfehler waere sofort das Update, das
+# jeder bekommt. Deshalb laeuft diese Pruefung bei jedem Push.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pruefen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Alle Module uebersetzen
+        run: python -m compileall -q nucleus tools
+
+      - name: apps.json ist gueltiges JSON
+        # Bewusst getrennt von check_docs.py: dessen Katalogpruefung laeuft ueber
+        # downloader.load_catalog(), und der laedt zuerst aus dem Netz - eine
+        # kaputte lokale Datei wuerde von der Online-Fassung verdeckt.
+        run: python -c "import json,sys; json.load(open('apps.json',encoding='utf-8')) or sys.exit(0)"
+
+      - name: Version an allen Stellen gleich
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+          datei = pathlib.Path("VERSION").read_text(encoding="utf-8").strip()
+          init = pathlib.Path("nucleus/__init__.py").read_text(encoding="utf-8")
+          code = re.search(r'__version__\s*=\s*"([^"]+)"', init).group(1)
+          badge = re.search(r"Version-([\d.]+)-", pathlib.Path("README.md").read_text(encoding="utf-8")).group(1)
+          if not (datei == code == badge):
+              sys.exit(f"Version laeuft auseinander: VERSION={datei} __init__={code} README={badge}")
+          print(f"Version {datei} an allen drei Stellen gleich.")
+          PY
+
+      - name: Windows-Dateien haben CRLF
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          fehler = [n for n in ("hoferium.bat", "LIESMICH.txt", "requirements.txt")
+                    if b"\r\n" not in pathlib.Path(n).read_bytes()]
+          if fehler:
+              sys.exit("Ohne CRLF: " + ", ".join(fehler))
+          print("CRLF vorhanden.")
+          PY
+
+      - name: Doku gegen Code
+        run: python tools/check_docs.py

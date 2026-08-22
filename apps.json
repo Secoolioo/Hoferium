@@ -69,7 +69,9 @@
     {
       "name": "Spotify",
       "category": "Medien",
-      "winget_id": "Spotify.Spotify"
+      "winget_id": "Spotify.Spotify",
+      "url": "https://download.scdn.co/SpotifySetup.exe",
+      "filename": "spotify-setup.exe"
     },
     {
       "name": "Discord",

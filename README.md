@@ -4,7 +4,7 @@
 
 **Windows-PCs neu aufsetzen, ohne vorher stundenlang Daten zusammenzusuchen.**
 
-[![Version](https://img.shields.io/badge/Version-1.7.1-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
+[![Version](https://img.shields.io/badge/Version-1.8.0-ffce00?style=flat-square&labelColor=1e1e26)](VERSION)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-dd0000?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Python](https://img.shields.io/badge/Python-wird%20mitinstalliert-1e1e26?style=flat-square&labelColor=1e1e26)](#voraussetzungen)
 [![Lizenz](https://img.shields.io/badge/Lizenz-MIT-1e1e26?style=flat-square&labelColor=1e1e26)](LICENSE)
@@ -59,16 +59,30 @@ Auf dem Stick, neben `hoferium.bat`:
 
 ```
 Hoferium-Sicherungen/
-  Sicherung_<PC>_<JJJJ-MM-TT_HH-MM>/     eine je Durchgang
+  Sicherung_<PC>_<JJJJ-MM-TT_HH-MM-SS>/  eine je Durchgang
     01_System … 10_EMail                 die gesicherten Bestandteile
+    NOTFALL-ZURUECKHOLEN.bat             WLAN und hosts ohne Python und ohne Netz
     WIEDERHERSTELLEN.txt                 Anleitung für den Fall von Hand
     ZUSAMMENFASSUNG.txt                  was geklappt hat und was nicht
+    PROTOKOLL.txt                        der vollständige Lauf, Zeile für Zeile
+    sicherung.json                       dieselbe Bilanz, maschinenlesbar
 Installer/                               heruntergeladene Installationsdateien
 ```
 
 Der Sammelordner und das Namensmuster sind fest – daran erkennt das Programm
 seine Sicherungen beim Zurückholen wieder. Ein umbenannter Ordner wird nicht
 mehr gefunden. Das Ziel selbst lässt sich in der Oberfläche umstellen.
+
+`ZUSAMMENFASSUNG.txt` unterscheidet drei Zustände je Schritt: `[OK]`,
+`[FEHL]` und `[TEILW]`. Der mittlere Fall ist der wichtigste – er heißt, dass
+der Schritt gelaufen ist, aber etwas nicht mitgenommen hat, etwa weil Chrome
+noch offen war. Darunter steht jeweils, was genau fehlt. Dieselben Angaben
+stehen in `sicherung.json`; daraus weiß Hoferium beim Zurückholen, welcher
+Bestandteil damals unvollständig blieb, und sagt es vorher.
+
+Vor dem ersten Kopiervorgang prüft Hoferium, ob am Ziel genug Platz frei ist,
+und warnt, wenn der Datenträger mit FAT32 formatiert ist – dort passt keine
+Datei über 4 GB hinein, was eine Outlook-`.pst` regelmäßig sprengt.
 
 Auf dem Rechner, unter `%LOCALAPPDATA%\Hoferium\`:
 
@@ -101,6 +115,27 @@ HTML-Dateien und nennt den Weg.
 
 Bevor ein vorhandenes Profil überschrieben wird, sichert das Programm den
 aktuellen Stand nach `%LOCALAPPDATA%\Hoferium\backups\vor_import_<Zeit>`.
+Scheitert diese Sicherheitskopie, wird nichts überschrieben – der Schritt
+bricht lieber ab, als den vorhandenen Stand ungesichert zu ersetzen.
+
+Läuft Firefox, Thunderbird oder Outlook noch, überspringt Hoferium den
+betreffenden Schritt und sagt, welches Programm zu schließen ist. Das ist kein
+übertriebener Schutz: Ein laufendes Programm hält sein Profil offen und
+schreibt beim Beenden seinen eigenen Stand darüber – die Wiederherstellung wäre
+danach still wieder weg, gemeldet als „erledigt".
+
+### Ohne Netz, ohne Python
+
+In jedem Sicherungsordner liegt `NOTFALL-ZURUECKHOLEN.bat`. Sie fordert selbst
+Administratorrechte an und macht genau drei Dinge: alle WLAN-Profile
+einspielen, die `hosts`-Datei zurückkopieren und die Ordner mit den
+Lesezeichen-HTML-Dateien und den Outlook-Dateien öffnen.
+
+Der Grund ist ein Henne-Ei-Problem. Der normale Weg über `hoferium.bat`
+braucht beim ersten Start eine Internetverbindung, um Python und die Oberfläche
+einzurichten. Fehlt nach der Neuinstallation der WLAN-Treiber, kommt man ohne
+die gesicherten Zugangsdaten nicht ins Netz – und die liegen in der Sicherung.
+Die Batch-Datei löst genau diesen Fall, mit `netsh` und sonst nichts.
 
 ## Browser-Passwörter
 
@@ -137,6 +172,12 @@ jeder Leseberechtigte abholen kann – diesen Weg geht Hoferium nicht. Das
 Kennwort wandert über die Standardeingabe, steht also auch nie in einer
 Befehlszeile, und wird nirgends protokolliert.
 
+Vor dem Speichern prüft Hoferium das Kennwort gegen Windows selbst. Stimmt es
+nicht, wird nichts geändert – sonst fiele der Tippfehler erst beim nächsten
+Start auf, mit dem Rechner am Anmeldebildschirm. *Abschalten* löscht das
+Kennwort wieder aus der LSA und stellt die Hello-Einstellung auf den Wert
+zurück, den sie vor dem Einrichten hatte.
+
 Daneben stehen als Tweaks: keine Kennwortabfrage nach dem Ruhezustand,
 Sperrbildschirm überspringen und Anmeldung ohne Strg+Alt+Entf.
 
@@ -159,6 +200,10 @@ Gegenwert zu schreiben – sonst bliebe die Einstellungen-App als „von Ihrer
 Organisation verwaltet" gesperrt. Jeder Tweak sagt außerdem, ob danach der
 Explorer, eine Neuanmeldung oder ein Neustart nötig ist.
 
+Wo ein Registry-Wert allein nicht reicht, steht das dabei, statt einen Erfolg
+zu behaupten: „Ruhezustand abschalten" etwa entfernt `C:\hiberfil.sys` nicht –
+dafür braucht es `powercfg /hibernate off`, und genau das sagt der Hinweis.
+
 ## Was es bewusst nicht tut
 
 - **Kein Systemabbild.** Gesichert werden Daten und Einstellungen, keine
@@ -177,6 +222,11 @@ Explorer, eine Neuanmeldung oder ein Neustart nötig ist.
   werden Windows-Apps und Herstellerzugaben; die Liste steht offen in
   `nucleus/uninstaller.py`. Die Edge-Entfernung ist ausdrücklich ein Versuch –
   Microsoft unterbindet sie teilweise.
+- **Der Ein-Klick-Lauf lässt aus, was anderes mitreißt.** Die Xbox-Pakete
+  hängen an der Spieleanmeldung und am Protokollhandler für die Spielleiste,
+  „Mail & Kalender" hält Konten und Nachrichten, die keine Sicherung erfasst.
+  Beides bleibt in der Einzelauswahl anhakbar, läuft aber nicht mehr
+  ungefragt mit.
 - **Deep-Uninstall lässt im Zweifel Reste stehen.** Getroffen wird nur, was
   exakt zum Programmnamen passt und höchstens zwei Ebenen unter einem bekannten
   Ordner liegt; Sammelordner sind gesperrt. Lieber ein Rest zu viel als ein
@@ -267,12 +317,24 @@ ohne Reste zu hinterlassen. Anschließend startet sich das Programm selbst neu.
   erweitern.
 - Der ersetzte Stand wandert nach `_vorherige_version/`. Dort liegt immer nur
   die **zuletzt** ersetzte Fassung – beim nächsten Update wird sie überschrieben.
+- Das neue Archiv wird nach `_neue_version/` auf denselben Datenträger entpackt
+  und von dort umbenannt statt kopiert. Ein Umbenennen dauert Millisekunden;
+  in genau dieser Spanne läge sonst ein Stick ohne Starter vor, wenn der Strom
+  ausfällt. Der Ordner verschwindet nach dem Update wieder.
 - Vor dem Einspielen wird geprüft, ob das Archiv überhaupt ein startfähiges
-  Programm enthält; sonst bricht der Vorgang ab und es ändert sich nichts.
+  Programm enthält, ob es die Größe eines Programmarchivs hat und ob es
+  überhaupt ein Archiv ist – ein Hotspot-Anmeldeportal liefert sonst seine
+  eigene HTML-Seite, und die käme ungeprüft in den Programmordner.
+- Ist die Verbindung nicht vertrauenswürdig, bricht das Update ab. Nur die
+  reine Versionsabfrage darf notfalls über eine ungeprüfte Verbindung laufen –
+  sie liest eine Zahl, während das Archiv anschließend mit
+  Administratorrechten ausgeführt wird.
 - Schlägt das Einspielen mittendrin fehl, wird der vorherige Stand
-  zurückgeholt.
+  zurückgeholt. Bleibt dabei etwas liegen, nennt Hoferium die betroffenen
+  Namen, statt einen halben Rollback als erledigt zu melden.
 - Der Starter merkt sich, für welche Version die Umgebung eingerichtet wurde,
-  und zieht nach einem Update die Pakete aus `requirements.txt` nach.
+  und zieht nach einem Update die Pakete aus `requirements.txt` nach. Erst wenn
+  das geklappt hat, gilt die Umgebung als fertig.
 
 ## Aufbau
 

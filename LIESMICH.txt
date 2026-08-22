@@ -107,8 +107,29 @@ WO LANDEN DIE DATEN?
                      Stand vor einem Import
     - tools\         portable Fremdwerkzeuge
 
-  In jedem Sicherungsordner liegen ZUSAMMENFASSUNG.txt (was geklappt hat)
-  und WIEDERHERSTELLEN.txt (Anleitung, falls du es von Hand machen willst).
+  In jedem Sicherungsordner liegen:
+    - ZUSAMMENFASSUNG.txt        was geklappt hat und was nicht
+    - WIEDERHERSTELLEN.txt       Anleitung, falls du es von Hand machst
+    - PROTOKOLL.txt              der ganze Lauf, Zeile fuer Zeile
+    - sicherung.json             dieselbe Bilanz fuer das Programm
+    - NOTFALL-ZURUECKHOLEN.bat   siehe unten
+
+  In der ZUSAMMENFASSUNG.txt steht je Schritt [OK], [TEILW] oder [FEHL].
+  [TEILW] heisst: der Schritt lief, hat aber etwas nicht mitgenommen -
+  meistens, weil ein Browser noch offen war. Darunter steht, was fehlt.
+
+
+WENN AUF DEM NEUEN PC KEIN INTERNET GEHT
+  Der normale Start ueber hoferium.bat braucht beim ersten Mal Internet
+  (Python und die Oberflaeche werden eingerichtet). Fehlt der WLAN-Treiber,
+  kommst du da nicht heran - die WLAN-Zugangsdaten liegen ja in der
+  Sicherung.
+
+  Fuer genau diesen Fall liegt in jedem Sicherungsordner die Datei
+  NOTFALL-ZURUECKHOLEN.bat. Doppelklick, Admin-Abfrage bestaetigen: Sie
+  spielt alle WLAN-Profile ein, holt die hosts-Datei zurueck und oeffnet
+  die Ordner mit den Lesezeichen und den Outlook-Dateien. Mehr macht sie
+  nicht - dafuer braucht sie weder Python noch Internet.
 
 
 SICHERHEIT UND GRENZEN

@@ -121,7 +121,8 @@ TWEAKS: list = [
           "Stellt das vollstaendige Kontextmenue von Windows 10 wieder her.",
           [{"hive": "HKCU",
             "path": r"SOFTWARE\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32",
-            "name": "", "type": "SZ", "on": "", "off": None, "delete_key": True}], restart="explorer"),
+            "name": "", "type": "SZ", "on": "", "off": None, "delete_key": True}],
+          restart="explorer", min_build=22000),
     # Nur bis Windows 11 22H2: ab 23H2 ist Teams eine gewoehnliche App und
     # wird per Rechtsklick von der Taskleiste geloest.
 
@@ -129,14 +130,16 @@ TWEAKS: list = [
           "Entfernt den eingebauten Chat-Button (nur bis Windows 11 22H2).",
           [{"hive": "HKCU", "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
             "name": "TaskbarMn", "type": "DWORD", "on": 0, "off": 1}],
-          restart="explorer", max_build=22630),
+          restart="explorer", min_build=22000, max_build=22630),
     # Ab Windows 11 24H2 ist Copilot eine normale App - dann hilft nur noch
-    # das Entfernen ueber die Debloat-Seite.
+    # das Entfernen ueber die Debloat-Seite. Die Grenze ist 22631 (23H2), die
+    # bisher eingetragene 22641 ist keine ausgelieferte Build-Nummer. Kein
+    # min_build: Die Richtlinie greift auch auf Windows 10 22H2.
     Tweak("copilot_off", "Copilot deaktivieren", "Privatsphaere",
           "Schaltet das eingebaute Copilot-Panel ab (bis Windows 11 23H2).",
           [{"hive": "HKCU", "path": r"SOFTWARE\Policies\Microsoft\Windows\WindowsCopilot",
             "name": "TurnOffWindowsCopilot", "type": "DWORD", "on": 1, "off": None}],
-          restart="abmelden", max_build=22641),
+          restart="abmelden", max_build=22631),
     Tweak("lockscreen_tips", "Sperrbildschirm-Tipps aus", "Privatsphaere",
           "Deaktiviert Fun-Facts/Werbung auf dem Sperrbildschirm.",
           [{"hive": "HKCU", "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager",
@@ -215,7 +218,8 @@ TWEAKS: list = [
     Tweak("compact_view", "Kompakte Ansicht (Win11)", "Explorer",
           "Engere Zeilenabstaende - mehr Eintraege auf einen Blick.",
           [{"hive": "HKCU", "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "name": "UseCompactMode", "type": "DWORD", "on": 1, "off": 0}], restart="explorer"),
+            "name": "UseCompactMode", "type": "DWORD", "on": 1, "off": 0}],
+          restart="explorer", min_build=22000),
 
     Tweak("no_sync_provider", "Keine OneDrive-Werbung im Explorer", "Explorer",
           "Blendet Hinweise auf Synchronisierungsanbieter aus.",
@@ -236,12 +240,16 @@ TWEAKS: list = [
     Tweak("taskbar_left", "Taskleiste linksbuendig (Win11)", "Taskleiste",
           "Symbole starten links statt in der Mitte.",
           [{"hive": "HKCU", "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced",
-            "name": "TaskbarAl", "type": "DWORD", "on": 0, "off": 1}], restart="explorer"),
+            "name": "TaskbarAl", "type": "DWORD", "on": 0, "off": 1}],
+          restart="explorer", min_build=22000),
 
     Tweak("taskbar_search", "Suchfeld aus Taskleiste", "Taskleiste",
           "Entfernt das breite Suchfeld neben dem Startknopf.",
+          # Zum Zuruecksetzen wird der Wert GELOESCHT statt auf 1 gesetzt: 1 waere
+          # "nur Lupensymbol", der Auslieferungszustand ist aber je nach
+          # Windows-Ausgabe das breite Suchfeld (2) oder Feld mit Beschriftung (3).
           [{"hive": "HKCU", "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Search",
-            "name": "SearchboxTaskbarMode", "type": "DWORD", "on": 0, "off": 1}],
+            "name": "SearchboxTaskbarMode", "type": "DWORD", "on": 0, "off": None}],
           recommended=True, restart="explorer"),
 
     Tweak("taskbar_taskview", "Taskansicht-Button aus", "Taskleiste",
@@ -259,7 +267,7 @@ TWEAKS: list = [
           [{"hive": "HKCU",
             "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced\TaskbarDeveloperSettings",
             "name": "TaskbarEndTask", "type": "DWORD", "on": 1, "off": 0}],
-          recommended=True),
+          recommended=True, min_build=22621),
 
     # ---------------- System & Tempo ----------------
     Tweak("fast_menus", "Menues schneller einblenden", "Tempo",
@@ -274,10 +282,16 @@ TWEAKS: list = [
             "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Serialize",
             "name": "StartupDelayInMSec", "type": "DWORD", "on": 0, "off": None}], restart="abmelden"),
 
-    Tweak("hibernate_off", "Ruhezustandsdatei entfernen", "Tempo",
-          "Gibt mehrere GB frei (hiberfil.sys). Schnellstart entfaellt dadurch.",
+    # Der Registry-Wert schaltet den Ruhezustand ab, loescht C:\hiberfil.sys
+    # aber NICHT - dafuer braucht es den Power-Manager-Aufruf von powercfg.
+    Tweak("hibernate_off", "Ruhezustand abschalten", "Tempo",
+          "Schaltet den Ruhezustand ab. Der Schnellstart entfaellt dadurch.",
           [{"hive": "HKLM", "path": r"SYSTEM\CurrentControlSet\Control\Power",
-            "name": "HibernateEnabled", "type": "DWORD", "on": 0, "off": 1}], restart="neustart"),
+            "name": "HibernateEnabled", "type": "DWORD", "on": 0, "off": 1}],
+          hint="Die Datei C:\\hiberfil.sys bleibt vorerst liegen. Sie verschwindet "
+               "erst, wenn in einer Eingabeaufforderung mit Administrator-Rechten "
+               "'powercfg /hibernate off' laeuft - das gibt mehrere GB frei.",
+          restart="neustart"),
 
     Tweak("verbose_status", "Ausfuehrliche Statusmeldungen", "Tempo",
           "Zeigt beim Start/Herunterfahren, worauf Windows gerade wartet.",
@@ -285,11 +299,14 @@ TWEAKS: list = [
             "path": r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System",
             "name": "VerboseStatus", "type": "DWORD", "on": 1, "off": None}], restart="neustart"),
 
+    # Der Dsh-Zweig ist Windows 11: Auf Windows 10 heisst die Funktion
+    # "News und Interessen" und haengt an einem anderen Schluessel - ohne
+    # min_build wuerde dort ein Erfolg gemeldet, der nichts bewirkt.
     Tweak("no_web_widgets", "Widgets-Dienst abschalten (Win11)", "Tempo",
           "Verhindert, dass der Widgets-Prozess im Hintergrund laeuft.",
           [{"hive": "HKLM", "path": r"SOFTWARE\Policies\Microsoft\Dsh",
             "name": "AllowNewsAndInterests", "type": "DWORD", "on": 0, "off": None}],
-          recommended=True, restart="explorer"),
+          recommended=True, restart="explorer", min_build=22000),
 
     # ---------------- Updates ----------------
     # NoAutoRebootWithLoggedOnUsers greift laut Microsoft nur zusammen mit
@@ -394,14 +411,28 @@ class TweakEngine:
         ok = 0
         fail = 0
         total = len(tweaks)
+        # Wurde die UAC-Abfrage mit einem ANDEREN Konto bestaetigt, zeigt
+        # HKEY_CURRENT_USER auf dessen Profil - die benutzerbezogenen Tweaks
+        # landen dann im falschen Konto, ohne dass man es der Erfolgsmeldung ansieht.
+        caller = os.environ.get("HOFERIUM_CALLER", "")
+        current = os.environ.get("USERNAME", "")
+        if (caller and current and caller.lower() != current.lower()
+                and any(op["hive"] == "HKCU" for tw in tweaks for op in tw.ops)):
+            self.r.warn(f"Das Programm laeuft als '{current}', angemeldet ist aber "
+                        f"'{caller}'. Alle benutzerbezogenen Einstellungen wirken "
+                        f"deshalb im Konto '{current}' - NICHT bei '{caller}'.")
         for i, tw in enumerate(tweaks):
             if self.r.cancelled:
                 self.r.warn("Abgebrochen.")
                 break
             self.r.status(f"{'Aktiviere' if enable else 'Widerrufe'} {tw.name} ...")
             try:
+                gesichert = set()
                 for op in tw.ops:
-                    self._backup(op["hive"], op["path"], tw.key)
+                    # Mehrere Werte im selben Schluessel brauchen nur EINEN Export.
+                    if (op["hive"], op["path"]) not in gesichert:
+                        self._backup(op["hive"], op["path"], tw.key)
+                        gesichert.add((op["hive"], op["path"]))
                     value = op["on"] if enable else op["off"]
                     if value is None:
                         if op.get("delete_key"):
@@ -437,12 +468,17 @@ class TweakEngine:
         Existiert der Schluessel noch gar nicht - etwa weil eine Richtlinie
         erstmals gesetzt wird -, schlaegt der Export fehl. Das ist in Ordnung
         und wird vermerkt, statt stillschweigend zu verschwinden.
+
+        Der Dateiname enthaelt den Schluesselpfad, damit sich die Sicherungen
+        eines Tweaks mit mehreren Zweigen nicht gegenseitig ueberschreiben -
+        'reg export /y' fragt nicht nach.
         """
         if not IS_WINDOWS:
             return
         stamp = datetime.now().strftime("%H%M%S")
         safe = "".join(c if c.isalnum() else "_" for c in tag)[:40]
-        out = self.backup_dir / f"tweak_{safe}_{stamp}.reg"
+        keyid = "".join(c if c.isalnum() else "_" for c in f"{hive}\\{path}")[-70:]
+        out = self.backup_dir / f"tweak_{safe}_{keyid}_{stamp}.reg"
         res = run(["reg", "export", f"{hive}\\{path}", str(out), "/y"], timeout=60)
         if res.rc != 0:
             self.r.log(f"  (noch nichts zu sichern: {hive}\\{path} gibt es nicht)")
@@ -525,7 +561,14 @@ def _p(*parts) -> str:
 
 
 def clean_targets() -> list:
-    win = os.environ.get("windir", r"C:\Windows")
+    # Ausschliesslich aus der Umgebung, kein geratener Ersatzpfad: Fehlt eine
+    # Variable, bleibt der Pfad leer und das Ziel wird uebersprungen, statt
+    # irgendwo daneben zu loeschen.
+    # LOCALAPPDATA und TEMP gehoeren dem Konto, unter dem Hoferium LAEUFT.
+    # Wurde die UAC-Abfrage mit einem anderen Konto bestaetigt (Umgebungs-
+    # variable HOFERIUM_CALLER), raeumt der Cleaner darum dessen Profil und
+    # nicht das des angemeldeten Benutzers.
+    win = os.environ.get("windir", "")
     la = os.environ.get("LOCALAPPDATA", "")
     tmp = os.environ.get("TEMP", "")
     return [
@@ -539,8 +582,11 @@ def clean_targets() -> list:
         CleanTarget("prefetch", "Prefetch",
                     "Prefetch-Dateien (werden neu aufgebaut).", "prefetch",
                     [_p(win, "Prefetch")]),
-        CleanTarget("thumb_cache", "Thumbnail-Cache",
-                    "Miniaturansichten-Cache des Explorers.", "files",
+        # Der Ordner enthaelt neben thumbcache_*.db auch iconcache_*.db; beide
+        # werden hier geloescht, deshalb nennt der Eintrag auch beides.
+        CleanTarget("thumb_cache", "Miniatur- und Symbol-Cache",
+                    "Zwischenspeicher fuer Miniaturansichten und Symbole des "
+                    "Explorers - Windows baut ihn neu auf.", "files",
                     [_p(la, "Microsoft", "Windows", "Explorer")]),
         CleanTarget("recycle", "Papierkorb leeren",
                     "Leert den Papierkorb aller Laufwerke.", "recycle", []),
@@ -560,11 +606,13 @@ class CleanupEngine:
         Ebene - so sieht man, was den Platz tatsaechlich belegt.
         """
         result = {}
+        # Ohne durchgereichten Reporter zaehlt der eigene: Sonst liefe der Scan
+        # nach einem Abbruch noch minutenlang ueber grosse Ordner weiter.
+        rep = reporter if reporter is not None else self.r
         for t in targets:
-            if reporter is not None:
-                if reporter.cancelled:
-                    break
-                reporter.status(f"Berechne {t.name} ...")
+            if rep.cancelled:
+                break
+            rep.status(f"Berechne {t.name} ...")
             if t.kind == "recycle":
                 size, items, files = self._recycle_size()
                 result[t.key] = {"size": size, "items": items, "files": files}
@@ -580,6 +628,10 @@ class CleanupEngine:
                 except OSError:
                     continue
                 for name in entries:
+                    # Auch innerhalb eines Ziels pruefen - ein einzelner Ordner
+                    # kann Zehntausende Eintraege haben.
+                    if rep.cancelled:
+                        break
                     full = os.path.join(base, name)
                     try:
                         if os.path.isfile(full):
@@ -623,8 +675,7 @@ class CleanupEngine:
             self.r.status(f"Bereinige {t.name} ...")
             try:
                 if t.kind == "recycle":
-                    powershell("Clear-RecycleBin -Force -EA SilentlyContinue", timeout=120)
-                    self.r.ok("Papierkorb geleert.")
+                    freed += self._clean_recycle()
                 elif t.kind == "updatecache":
                     freed += self._clean_update_cache(t)
                 else:
@@ -635,6 +686,23 @@ class CleanupEngine:
         self.r.done({"freed_mb": round(freed / 1048576, 1)})
         return {"freed_mb": round(freed / 1048576, 1)}
 
+    def _clean_recycle(self) -> int:
+        """Leert den Papierkorb und meldet nur, was wirklich verschwunden ist.
+
+        Clear-RecycleBin meldet auch bei einem bereits leeren Papierkorb einen
+        Fehler und wird deshalb mit -EA SilentlyContinue aufgerufen; belastbar
+        ist danach allein die gemessene Differenz, nicht der Rueckgabewert.
+        """
+        vorher = self._recycle_size()[0]
+        powershell("Clear-RecycleBin -Force -EA SilentlyContinue", timeout=120)
+        freed = max(vorher - self._recycle_size()[0], 0)
+        if vorher and not freed:
+            self.r.warn("Papierkorb: es wurde nichts geloescht - er koennte einem "
+                        "anderen Benutzerkonto gehoeren.")
+        else:
+            self.r.ok(f"Papierkorb: {round(freed / 1048576, 1)} MB frei.")
+        return freed
+
     def _clean_files(self, t: CleanTarget) -> int:
         freed = 0
         for base in t.paths:
@@ -643,7 +711,15 @@ class CleanupEngine:
             # Arbeitsverzeichnis, also auf den USB-Stick.
             if not base or not os.path.isabs(base) or not os.path.isdir(base):
                 continue
-            for entry in os.listdir(base):
+            try:
+                entries = os.listdir(base)
+            except OSError as e:
+                # Ohne diese Meldung endete ein nicht lesbarer Ordner in einer
+                # Erfolgszeile "0 MB frei" - vorher war der Fehler wenigstens
+                # als Fehler zu sehen, weil er bis clean() durchschlug.
+                self.r.warn(f"{t.name}: {base} liess sich nicht lesen ({e}).")
+                continue
+            for entry in entries:
                 full = os.path.join(base, entry)
                 try:
                     if os.path.isfile(full) or os.path.islink(full):
@@ -653,19 +729,38 @@ class CleanupEngine:
                     elif os.path.isdir(full):
                         sz = dir_size_bytes(full)
                         shutil.rmtree(full, ignore_errors=True)
-                        freed += sz
+                        # rmtree(ignore_errors=True) meldet nicht, was liegen
+                        # blieb - was uebrig ist, darf nicht als frei gelten.
+                        rest = dir_size_bytes(full) if os.path.isdir(full) else 0
+                        freed += max(sz - rest, 0)
                 except OSError:
                     pass  # in Benutzung -> ueberspringen
         self.r.ok(f"{t.name}: {round(freed / 1048576, 1)} MB frei.")
         return freed
 
     def _clean_update_cache(self, t: CleanTarget) -> int:
-        run(["net", "stop", "wuauserv"], timeout=60)
-        run(["net", "stop", "bits"], timeout=60)
-        freed = self._clean_files(t)
-        run(["net", "start", "bits"], timeout=60)
-        run(["net", "start", "wuauserv"], timeout=60)
-        return freed
+        """Leert den Update-Zwischenspeicher bei angehaltenen Diensten.
+
+        Der Neustart der Dienste steht in einem finally: Ohne das bliebe nach
+        einem Fehler beim Loeschen Windows Update dauerhaft abgeschaltet, und
+        der Anwender merkt das erst Wochen spaeter.
+        """
+        gestoppt = []
+        for dienst in ("wuauserv", "bits"):
+            # net stop meldet auch dann einen Fehler, wenn der Dienst gar nicht
+            # lief - nur ein sauberes Stoppen verpflichtet zum Wiederanfahren.
+            if run(["net", "stop", dienst], timeout=60).rc == 0:
+                gestoppt.append(dienst)
+            else:
+                self.r.warn(f"Der Dienst {dienst} liess sich nicht anhalten - "
+                            "gesperrte Dateien bleiben deshalb liegen.")
+        try:
+            return self._clean_files(t)
+        finally:
+            for dienst in reversed(gestoppt):
+                if run(["net", "start", dienst], timeout=60).rc != 0:
+                    self.r.err(f"Der Dienst {dienst} laeuft NICHT wieder - bitte "
+                               "den Rechner neu starten, sonst fehlen Updates.")
 
 
 # ==================================================================

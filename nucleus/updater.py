@@ -18,7 +18,6 @@ import os
 import shutil
 import ssl
 import subprocess
-import tempfile
 import urllib.error
 import urllib.request
 import zipfile
@@ -30,18 +29,20 @@ BRANCH = "main"
 VERSION_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/VERSION"
 API_VERSION_URL = f"https://api.github.com/repos/{REPO}/contents/VERSION?ref={BRANCH}"
 ZIP_URL = f"https://codeload.github.com/{REPO}/zip/refs/heads/{BRANCH}"
-RELEASES_URL = f"https://github.com/{REPO}/releases"
 REPO_URL = f"https://github.com/{REPO}"
 
 _UA = "Hoferium-Updater"
 _TIMEOUT = 10          # kurz halten: der Start darf nie darauf warten
+_MAX_ZIP = 50 * 1024 * 1024   # ein defekter Proxy soll den Speicher nicht vollschreiben
 
 BACKUP_DIR = "_vorherige_version"
+STAGING_DIR = "_neue_version"
 
 # Diese Eintraege ueberstehen jedes Update unveraendert: die Ergebnisse des
 # Nutzers und der Sicherungsordner des Updates selbst.
 KEEP_ALWAYS = (
     BACKUP_DIR,
+    STAGING_DIR,        # Zwischenablage des laufenden Updates
     "Hoferium-Sicherungen",   # Sammelordner der Datensicherungen
     "Sicherung_*",      # aeltere, lose abgelegte Sicherungen
     "Installer",        # heruntergeladene Installationsdateien
@@ -72,11 +73,24 @@ class UpdateInfo:
         return not self.error
 
 
-def _open(url: str):
+def _open(url: str, allow_insecure: bool = False):
+    """Oeffnet die Adresse. allow_insecure gilt nur fuer die Versionsabfrage.
+
+    Ausfuehrbarer Code (das Update-ZIP) darf ausschliesslich ueber eine
+    geprueft verschluesselte Verbindung kommen - sonst genuegt die
+    Netzwerkposition, um ein eigenes Archiv unterzuschieben.
+    """
     req = urllib.request.Request(url, headers={"User-Agent": _UA})
     try:
         return urllib.request.urlopen(req, timeout=_TIMEOUT)
+    except urllib.error.HTTPError:
+        # HTTPError ist eine Unterklasse von URLError: ein Statuscode wie 403
+        # (Rate-Limit) oder 404 wird von einem zweiten Versuch nicht besser,
+        # er verdoppelt nur den Verbrauch am Anfragekontingent.
+        raise
     except (urllib.error.URLError, ssl.SSLError, OSError):
+        if not allow_insecure:
+            raise
         # Manche Firmen-/Heimnetze haben kaputte Zertifikatsketten; ein
         # Versionsvergleich ist kein Grund, dafuer die App scheitern zu lassen.
         ctx = ssl.create_default_context()
@@ -92,7 +106,7 @@ def _version_via_api() -> str:
     eine frisch veroeffentlichte Fassung dort minutenlang alt bleibt - ein
     Update wuerde sonst verspaetet erkannt.
     """
-    with _open(API_VERSION_URL) as resp:
+    with _open(API_VERSION_URL, allow_insecure=True) as resp:
         data = json.loads(resp.read().decode("utf-8", errors="replace"))
     content = data.get("content") or ""
     if data.get("encoding") == "base64" and content:
@@ -102,7 +116,7 @@ def _version_via_api() -> str:
 
 
 def _version_via_raw() -> str:
-    with _open(VERSION_URL) as resp:
+    with _open(VERSION_URL, allow_insecure=True) as resp:
         return resp.read(200).decode("utf-8", errors="replace").strip()
 
 
@@ -146,15 +160,36 @@ def apply(install_dir, reporter=None) -> bool:
     log("Lade Update von GitHub ...")
     try:
         with _open(ZIP_URL) as resp:
-            blob = resp.read()
+            blob = resp.read(_MAX_ZIP + 1)
+    except (urllib.error.URLError, ssl.SSLError) as e:
+        if isinstance(e, ssl.SSLError) or isinstance(getattr(e, "reason", None), ssl.SSLError):
+            # urllib verpackt einen TLS-Fehler in URLError.reason - hier gibt es
+            # bewusst keinen Rueckfall auf eine ungepruefte Verbindung.
+            log("Verbindung nicht vertrauenswuerdig - Update abgebrochen.", "err")
+        else:
+            log(f"Download fehlgeschlagen: {e}", "err")
+        return False
     except Exception as e:
         log(f"Download fehlgeschlagen: {e}", "err")
+        return False
+    if len(blob) > _MAX_ZIP:
+        log("Heruntergeladenes Archiv ist unplausibel gross - abgebrochen.", "err")
         return False
     if len(blob) < 2048:
         log("Heruntergeladenes Archiv ist unplausibel klein - abgebrochen.", "err")
         return False
+    if not blob.startswith(b"PK"):
+        # Captive Portals und Proxys antworten mit HTML statt mit dem Archiv.
+        log("Heruntergeladene Datei ist kein Archiv - abgebrochen.", "err")
+        return False
 
-    tmp = Path(tempfile.mkdtemp(prefix="hoferium_upd_"))
+    # Der neue Stand wird auf demselben Datentraeger zwischengelagert, damit
+    # das Einspielen nur noch Umbenennungen braucht: das Zeitfenster, in dem
+    # der Stick weder Starter noch Programmordner hat, schrumpft von Sekunden
+    # auf Millisekunden.
+    tmp = install_dir / STAGING_DIR
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True, exist_ok=True)
     backup = install_dir / BACKUP_DIR
     try:
         with zipfile.ZipFile(io.BytesIO(blob)) as zf:
@@ -188,20 +223,45 @@ def apply(install_dir, reporter=None) -> bool:
                     shutil.move(str(cur), str(backup / name))
                     moved.append(name)
             # 2) Neuen Stand einspielen
-            for item in src.iterdir():
+            for item in sorted(src.iterdir()):
+                if _is_protected(item.name, protect):
+                    # Schritt 1 hat Geschuetztes stehen lassen; es darf auch
+                    # nicht aus dem Archiv ueberschrieben werden.
+                    continue
                 dst = install_dir / item.name
-                if item.is_dir():
-                    shutil.copytree(item, dst)
-                else:
-                    shutil.copy2(item, dst)
+                if dst.exists():
+                    shutil.rmtree(dst, ignore_errors=True) if dst.is_dir() else dst.unlink()
+                os.replace(str(item), str(dst))
         except Exception as e:
             log(f"Einspielen fehlgeschlagen ({e}) - stelle die vorherige "
                 f"Fassung wieder her.", "err")
+            # Was Schritt 2 neu angelegt hat, steht nicht in 'moved' und wuerde
+            # sich sonst unter die wiederhergestellte alte Fassung mischen.
+            for name in incoming:
+                if name in moved or _is_protected(name, protect):
+                    continue
+                fresh = install_dir / name
+                try:
+                    if fresh.is_dir():
+                        shutil.rmtree(fresh, ignore_errors=True)
+                    elif fresh.exists():
+                        fresh.unlink()
+                except Exception:
+                    pass
+            failed = []
             for name in moved:
-                dst = install_dir / name
-                if dst.exists():
-                    shutil.rmtree(dst, ignore_errors=True) if dst.is_dir() else dst.unlink()
-                shutil.move(str(backup / name), str(dst))
+                # Jeder Eintrag einzeln: ein blockierter Name (offene Datei,
+                # Schreibschutz) darf die restliche Wiederherstellung nicht stoppen.
+                try:
+                    dst = install_dir / name
+                    if dst.exists():
+                        shutil.rmtree(dst, ignore_errors=True) if dst.is_dir() else dst.unlink()
+                    shutil.move(str(backup / name), str(dst))
+                except Exception:
+                    failed.append(name)
+            if failed:
+                log("Wiederherstellung unvollstaendig: " + ", ".join(sorted(failed))
+                    + f". Bitte den Inhalt von {backup} von Hand zurueckkopieren.", "err")
             return False
 
         if obsolete:
@@ -236,7 +296,10 @@ def restart_app(install_dir, delay: int = 3) -> bool:
         if os.name == "nt":
             DETACHED = 0x00000008 | 0x00000200      # DETACHED_PROCESS | NEW_GROUP
             subprocess.Popen(
-                f'timeout /t {max(1, delay)} /nobreak >nul & start "" "{starter.name}"',
+                # ping statt timeout: timeout.exe bricht ohne Konsolen-Eingabe
+                # ("Input redirection is not supported") sofort ab, und wegen
+                # des einfachen & liefe start dann ohne jede Wartezeit los.
+                f'ping -n {max(1, delay) + 1} 127.0.0.1 >nul & start "" "{starter.name}"',
                 shell=True, cwd=str(install_dir), creationflags=DETACHED,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL)
@@ -300,6 +363,8 @@ def _safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
     dest = dest.resolve()
     for member in zf.infolist():
         target = (dest / member.filename).resolve()
-        if not str(target).startswith(str(dest)):
+        # Vergleich ueber die Pfadteile statt ueber den Text: ein Nachbarordner,
+        # dessen Name mit dem Zielnamen beginnt, wuerde sonst durchgehen.
+        if target != dest and dest not in target.parents:
             raise RuntimeError(f"Unerlaubter Pfad im Archiv: {member.filename}")
     zf.extractall(dest)

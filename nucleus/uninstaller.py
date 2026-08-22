@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -30,20 +31,44 @@ BLOAT_APPX = [
     "Microsoft.Clipchamp", "Clipchamp.Clipchamp",
     "MicrosoftTeams", "MSTeams", "Microsoft.Teams",
     "Microsoft.549981C3F5F10",  # Cortana
-    "Microsoft.GamingApp", "Microsoft.XboxGamingOverlay",
+    "Microsoft.GamingApp", "Microsoft.XboxGamingOverlay",       # nur manuell
     "Microsoft.XboxGameOverlay", "Microsoft.XboxSpeechToTextOverlay",
     "Microsoft.XboxIdentityProvider", "Microsoft.Xbox.TCUI",
     "Microsoft.MixedReality.Portal", "Microsoft.OneConnect",
-    "Microsoft.WindowsCommunicationsApps",  # Mail & Kalender
+    "Microsoft.WindowsCommunicationsApps",  # Mail & Kalender - nur manuell
     "Microsoft.SkypeApp", "Microsoft.Wallet", "Microsoft.3DBuilder",
     "Microsoft.Microsoft3DViewer", "Microsoft.Print3D",
     "Microsoft.OutlookForWindows", "Microsoft.Copilot",
-    "Disney", "SpotifyAB.SpotifyMusic", "Facebook", "Instagram",
+    "Disney", "SpotifyAB.SpotifyMusic",  # nur manuell
+    "Facebook", "Instagram",
     "king.com", "king.com.CandyCrush", "PandoraMediaInc",
     "Microsoft.MicrosoftJournal", "Microsoft.PowerBIforWindows",
 ]
+
+# Pakete, die im Ein-Klick-Lauf NICHT angefasst werden duerfen - sie bleiben
+# ueber die manuelle AppX-Auswahl erreichbar, wo der Nutzer sie einzeln anhakt.
+BLOAT_APPX_MANUAL_ONLY = [
+    # Ohne XboxIdentityProvider und Xbox.TCUI scheitert die Xbox-Live-Anmeldung
+    # aus Spielen heraus (Minecraft mit Microsoft-Konto, Game-Pass-Titel), ohne
+    # XboxGamingOverlay fehlt der Protokollhandler ms-gamingoverlay und Windows
+    # verlangt bei jedem Spielstart eine neue App, ohne GamingApp lassen sich
+    # Game-Pass-Spiele nicht mehr installieren.
+    "Microsoft.GamingApp", "Microsoft.XboxGamingOverlay",
+    "Microsoft.XboxGameOverlay", "Microsoft.XboxSpeechToTextOverlay",
+    "Microsoft.XboxIdentityProvider", "Microsoft.Xbox.TCUI",
+    # Mail & Kalender haelt Konten und lokal abgelegte Nachrichten, die das
+    # Sicherungsmodul nicht erfasst (dort nur Thunderbird und Outlook-.pst).
+    "Microsoft.WindowsCommunicationsApps",
+    # Gleiche Begruendung wie bei BLOAT_WIN32: kann selbst installiert sein und
+    # haelt eigene Daten (Offline-Downloads).
+    "Disney", "SpotifyAB.SpotifyMusic",
+]
+
 # StickyNotes standardmaessig NICHT als Bloat behandeln (Notizen!)
 BLOAT_APPX_SAFE = [p for p in BLOAT_APPX if "StickyNotes" not in p]
+# Liste fuer den Ein-Klick-Lauf: alles aus der manuellen Auswahl ausser den
+# Paketen, deren Entfernung anderes beschaedigt oder Daten unerreichbar macht.
+BLOAT_APPX_AUTO = [p for p in BLOAT_APPX_SAFE if p not in BLOAT_APPX_MANUAL_ONLY]
 
 # Nur ab Werk vorinstallierter Herstellerkram und Testversionen.
 # BEWUSST NICHT enthalten: Programme, die der Nutzer selbst installiert haben
@@ -63,7 +88,7 @@ BLOAT_WIN32 = [
 def _looks_bloat(app: InstalledApp) -> bool:
     n = app.name.lower()
     if app.kind == "appx":
-        return any(frag.lower() in app.name.lower() for frag in BLOAT_APPX_SAFE)
+        return any(frag.lower() in app.name.lower() for frag in BLOAT_APPX_AUTO)
     return any(frag.lower() in n for frag in BLOAT_WIN32)
 
 
@@ -139,6 +164,7 @@ class Uninstaller:
             self.r.err(f"{app.name}: {e}")
             return False
         if ok and deep:
+            self._wait_until_gone(app)
             self._deep_clean(app, install_location)
         if ok:
             self.r.ok(f"{app.name} entfernt.")
@@ -184,13 +210,35 @@ class Uninstaller:
         return "REMOVED" in (res.out or "")
 
     # ---------- Deep-Clean (Revo-Stil) ----------
+    def _wait_until_gone(self, app: InstalledApp, timeout: int = 60) -> None:
+        """Wartet, bis der Uninstall-Schluessel des Programms verschwunden ist.
+
+        Ein NSIS-Uninstaller kopiert sich beim Start nach %TEMP% und beendet den
+        aufgerufenen Prozess sofort - ohne dieses Warten zoege der Deep-Clean dem
+        noch laufenden Uninstaller den Installationsordner unter den Fuessen weg.
+        """
+        if app.kind != "win32" or not app.reg_path or not IS_WINDOWS:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if run(["reg", "query", app.reg_path], timeout=15).rc != 0:
+                return
+            if self.r.cancelled:
+                return
+            time.sleep(2)
+        self.r.warn(f"{app.name}: Uninstaller laeuft nach {timeout}s noch - "
+                    "die Reste-Suche kann unvollstaendig bleiben.")
+
     def _install_location(self, app: InstalledApp) -> str:
         if app.kind != "win32" or not app.reg_path:
             return ""
-        # InstallLocation aus dem Uninstall-Key lesen
+        # InstallLocation aus dem Uninstall-Key lesen. Das Apostroph wird
+        # verdoppelt, weil Schluesselnamen es enthalten duerfen ("Sid Meier's
+        # ..._is1") und es sonst das PowerShell-Stringliteral beenden wuerde.
+        reg_path = app.reg_path.replace("'", "''")
         script = (
             "$ErrorActionPreference='SilentlyContinue';"
-            f"(Get-ItemProperty -Path 'Registry::{app.reg_path}').InstallLocation"
+            f"(Get-ItemProperty -Path 'Registry::{reg_path}').InstallLocation"
         )
         return (powershell(script, timeout=30).out or "").strip()
 
@@ -223,7 +271,13 @@ class Uninstaller:
             if not self._backup_reg(reg_path, f"leftover_{token}"):
                 self.r.warn(f"  Backup fehlgeschlagen - {reg_path} bleibt bestehen.")
                 continue
-            run(["reg", "delete", reg_path, "/f"], timeout=30)
+            # Nur ein wirklich geloeschter Schluessel zaehlt: bei ACLs von
+            # TrustedInstaller oder einem noch laufenden Dienst scheitert
+            # reg delete, und "N Reste bereinigt" waere dann eine Falschmeldung.
+            if run(["reg", "delete", reg_path, "/f"], timeout=30).rc != 0:
+                self.r.warn(f"  {reg_path} liess sich nicht loeschen "
+                            "(Berechtigung oder laufender Dienst).")
+                continue
             removed += 1
         self.r.log(f"  {removed} Reste bereinigt (Backups in {self.backup_dir}).")
 

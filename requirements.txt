@@ -1,4 +1,9 @@
 # Pakete, die Hoferium zur Laufzeit braucht.
 # Der Starter installiert diese Liste bei der Einrichtung und nach jedem
 # Update, bei dem sich die Versionsnummer geaendert hat.
-customtkinter>=5.2
+#
+# Die Obergrenze steht hier mit Absicht: der Starter installiert mit
+# --upgrade, eine kuenftige Hauptversion mit geaenderter Programmier-
+# schnittstelle wuerde die Oberflaeche sonst ungefragt lahmlegen. Wer auf
+# 6.x hebt, testet vorher nucleus/ui.py und aendert diese Zeile bewusst.
+customtkinter>=5.2,<6

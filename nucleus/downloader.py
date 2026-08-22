@@ -12,10 +12,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .context import Reporter
-from .winutils import powershell, run
+from .winutils import RC_NOT_FOUND, powershell, run
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36")
+
+# winget-Rueckgabecodes (AppInstallerErrors.h des Projekts winget-cli):
+# 0x8A150061 = Paket bereits installiert, 0x8A15002B = kein Update noetig,
+# 0x8A150056 = der Installer verbietet erhoehte Rechte.
+_WINGET_OK = (0, 0x8A150061, 0x8A15002B)
+_WINGET_KEINE_ERHOEHUNG = 0x8A150056
+
+
+def _rc32(rc: int) -> int:
+    """Windows meldet den Exitcode vorzeichenlos, andere Wege vorzeichenbehaftet -
+    ohne diese Normierung auf 32 Bit trifft der Vergleich mit den winget-Codes nie zu."""
+    return rc & 0xFFFFFFFF
 
 
 CATALOG_URL = ("https://raw.githubusercontent.com/Secoolioo/Hoferium/"
@@ -54,7 +66,11 @@ CATALOG: list = [
     App("PowerToys", "Werkzeuge", winget_id="Microsoft.PowerToys"),
     App("VS Code", "Entwicklung", winget_id="Microsoft.VisualStudioCode"),
     App("Git", "Entwicklung", winget_id="Git.Git"),
-    App("Spotify", "Medien", winget_id="Spotify.Spotify"),
+    # Spotify verbietet im eigenen Paket erhoehte Rechte, Hoferium laeuft aber
+    # immer als Administrator - deshalb hier zusaetzlich die Direkt-Adresse.
+    App("Spotify", "Medien",
+        url="https://download.scdn.co/SpotifySetup.exe",
+        winget_id="Spotify.Spotify", filename="spotify-setup.exe"),
     App("Discord", "Kommunikation", winget_id="Discord.Discord"),
     App("Steam", "Gaming", winget_id="Valve.Steam"),
     App("qBittorrent", "Werkzeuge", winget_id="qBittorrent.qBittorrent"),
@@ -123,6 +139,11 @@ class DownloadManager:
     def download_all(self, apps: list, dest: Path) -> dict:
         dest = Path(dest)
         dest.mkdir(parents=True, exist_ok=True)
+        # Eintraege ohne Direkt-URL kommen nur ueber winget herein - ohne diese
+        # Vorab-Pruefung meldete jeder von ihnen einzeln einen falschen Grund.
+        if any(not a.url and a.winget_id for a in apps) and not self.ensure_winget():
+            self.r.warn("Ohne winget lassen sich nur die Eintraege mit direkter "
+                        "Download-Adresse speichern.")
         ok = 0
         fail = 0
         total = len(apps)
@@ -187,6 +208,10 @@ class DownloadManager:
         res = run(["winget", "download", "--id", app.winget_id, "-e",
                    "--accept-package-agreements", "--accept-source-agreements",
                    "-d", str(dest)], timeout=600)
+        # RC_NOT_FOUND heisst: das Programm winget selbst gibt es hier gar nicht -
+        # dann waere der Hinweis auf eine zu alte Fassung schlicht falsch.
+        if res.rc == RC_NOT_FOUND:
+            raise RuntimeError("winget ist auf diesem PC nicht vorhanden")
         if res.rc != 0:
             raise RuntimeError("winget download nicht moeglich (Version zu alt?) - "
                                "stattdessen 'Direkt installieren' nutzen")
@@ -213,14 +238,19 @@ class DownloadManager:
             res = run(["winget", "install", "--id", app.winget_id, "-e",
                        "--accept-package-agreements", "--accept-source-agreements",
                        "--disable-interactivity"], timeout=1200)
-            # winget-Codes: 0 = installiert, 0x8A150061 = bereits vorhanden,
-            # 0x8A15002B = kein Update noetig (beide als Erfolg werten).
-            if res.rc == 0:
+            rc = _rc32(res.rc)
+            if rc == 0:
                 ok += 1
                 self.r.ok(f"{app.name} installiert.")
-            elif res.rc in (-1978335135, -1978335189):
+            elif rc in _WINGET_OK:
                 ok += 1
                 self.r.ok(f"{app.name} war bereits installiert.")
+            elif rc == _WINGET_KEINE_ERHOEHUNG:
+                # Hoferium laeuft immer als Administrator; solche Pakete lassen
+                # sich so grundsaetzlich nicht setzen, Wiederholen hilft nicht.
+                fail += 1
+                self.r.err(f"{app.name} darf nicht als Administrator installiert "
+                           "werden - bitte 'Installer speichern' nutzen.")
             else:
                 fail += 1
                 self.r.err(f"{app.name}: winget-Code {res.rc}")
@@ -298,9 +328,9 @@ class DownloadManager:
     def _winget_via_msix(self) -> None:
         """Direktinstallation der Pakete von Microsoft.
 
-        aka.ms-Adressen zeigen immer auf die aktuelle Fassung; die
-        Oberflaechen-Bibliothek wird ueber die Release-Liste ihres Projekts
-        gesucht, damit keine Versionsnummer fest verdrahtet ist.
+        Paket, Abhaengigkeiten und Lizenz stammen alle aus derselben Release von
+        microsoft/winget-cli. Damit passt die Liste der Abhaengigkeiten immer zum
+        Paket, statt mit jeder neuen winget-Fassung zu veralten.
         """
         script = r"""
 $ErrorActionPreference='Stop'
@@ -309,37 +339,72 @@ $ProgressPreference='SilentlyContinue'
 $tmp = Join-Path $env:TEMP ('winget_setup_' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
-    $vc = Join-Path $tmp 'vclibs.appx'
-    Invoke-WebRequest -Uri 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx' -OutFile $vc
-    Add-AppxPackage -Path $vc -ErrorAction SilentlyContinue
+    $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/winget-cli/releases/latest' -Headers @{'User-Agent'='Hoferium'}
+    $bundleAsset = $rel.assets | Where-Object { $_.name -like '*.msixbundle' } | Select-Object -First 1
+    $depAsset    = $rel.assets | Where-Object { $_.name -eq 'DesktopAppInstaller_Dependencies.zip' } | Select-Object -First 1
+    $licAsset    = $rel.assets | Where-Object { $_.name -like '*_License1.xml' } | Select-Object -First 1
+    if (-not $bundleAsset) { throw 'kein msixbundle in der aktuellen Release' }
 
-    # Oberflaechen-Bibliothek: neueste 2.8-Fassung aus der Release-Liste holen
-    try {
-        $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/microsoft/microsoft-ui-xaml/releases' -Headers @{'User-Agent'='Hoferium'}
-        $asset = $rel | Where-Object { $_.tag_name -like 'v2.8*' } |
-                 Select-Object -First 1 -ExpandProperty assets |
-                 Where-Object { $_.name -like '*x64.appx' } | Select-Object -First 1
-        if ($asset) {
-            $xaml = Join-Path $tmp 'xaml.appx'
-            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $xaml
-            Add-AppxPackage -Path $xaml -ErrorAction SilentlyContinue
-        }
-    } catch { }
+    # In einer 32-Bit-PowerShell auf 64-Bit-Windows steht die echte Architektur
+    # des Systems nur in PROCESSOR_ARCHITEW6432.
+    $arch = $env:PROCESSOR_ARCHITEW6432
+    if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
+    switch ($arch) {
+        'AMD64' { $archDir = 'x64' }
+        'ARM64' { $archDir = 'arm64' }
+        default { $archDir = 'x86' }
+    }
+
+    # Die Abhaengigkeiten liegen im Archiv nach Architektur getrennt vor
+    # (x64/, x86/, arm64/) und muessen vor dem Bundle eingespielt werden.
+    $deps = @()
+    if ($depAsset) {
+        $zip = Join-Path $tmp 'deps.zip'
+        Invoke-WebRequest -Uri $depAsset.browser_download_url -OutFile $zip
+        $depDir = Join-Path $tmp 'deps'
+        Expand-Archive -Path $zip -DestinationPath $depDir -Force
+        $deps = @(Get-ChildItem -Path (Join-Path $depDir $archDir) -Filter '*.appx' -ErrorAction SilentlyContinue |
+                  ForEach-Object { $_.FullName })
+        foreach ($d in $deps) { Add-AppxPackage -Path $d -ErrorAction SilentlyContinue }
+    }
+    if (-not $deps) { Write-Output 'DEPS_FEHLEN' }
 
     $bundle = Join-Path $tmp 'winget.msixbundle'
-    Invoke-WebRequest -Uri 'https://aka.ms/getwinget' -OutFile $bundle
-    $lic = Join-Path $tmp 'license.xml'
-    try {
-        Invoke-WebRequest -Uri 'https://aka.ms/getwingetlicense' -OutFile $lic
-        Add-AppxProvisionedPackage -Online -PackagePath $bundle -LicensePath $lic | Out-Null
-    } catch {
-        Add-AppxPackage -Path $bundle
+    Invoke-WebRequest -Uri $bundleAsset.browser_download_url -OutFile $bundle
+
+    $provisioned = $false
+    if ($licAsset) {
+        $lic = Join-Path $tmp 'license.xml'
+        Invoke-WebRequest -Uri $licAsset.browser_download_url -OutFile $lic
+        $prov = @{ Online = $true; PackagePath = $bundle; LicensePath = $lic }
+        if ($deps) { $prov['DependencyPackagePath'] = $deps }
+        try {
+            Add-AppxProvisionedPackage @prov | Out-Null
+            $provisioned = $true
+        } catch {
+            Write-Output ('PROV_FEHLER: ' + $_.Exception.Message)
+        }
+    }
+    if (-not $provisioned) {
+        if ($deps) { Add-AppxPackage -Path $bundle -DependencyPath $deps }
+        else { Add-AppxPackage -Path $bundle }
     }
     Write-Output 'MSIX_OK'
 } finally {
     Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }
 """
-        res = powershell(script, timeout=900)
-        if "MSIX_OK" not in (res.out or ""):
+        # Mehr Zeit als bei den uebrigen Schritten: hier kommen rund 300 MB
+        # (Bundle plus Abhaengigkeitsarchiv) ueber die Leitung.
+        res = powershell(script, timeout=1800)
+        out = res.out or ""
+        # Zwischen-Fehlschlaege sichtbar machen - frueher verschluckte sie ein
+        # leerer catch-Zweig und im Protokoll stand nichts davon.
+        for line in out.splitlines():
+            if line.startswith("DEPS_FEHLEN"):
+                self.r.warn("Abhaengigkeiten fuer winget nicht gefunden - die "
+                            "Installation schlaegt vermutlich fehl.")
+            elif line.startswith("PROV_FEHLER"):
+                self.r.log(line.strip())
+        if "MSIX_OK" not in out:
             raise RuntimeError((res.err or "kein Ergebnis").strip()[:160])
